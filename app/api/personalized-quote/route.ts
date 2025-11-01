@@ -24,7 +24,7 @@ Create an inspiring, concise quote (1-2 lines) that specifically addresses their
       contents: prompt,
     })
 
-    const quote = response.candidates[0].content.parts[0].text || "You are stronger than you think!"
+    const quote = response.candidates?.[0]?.content?.parts?.[0]?.text || "You are stronger than you think!"
 
     return NextResponse.json({ quote })
   } catch (error) {
