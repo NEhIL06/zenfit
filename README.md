@@ -279,7 +279,7 @@ This project is private and proprietary.
 
 ## 👤 Author
 
-Your Name/Organization
+Nehil Chandrakar
 
 ## 🙏 Acknowledgments
 
