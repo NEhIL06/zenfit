@@ -14,7 +14,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       { returnDocument: "after" },
     )
 
-    if (!result.value) {
+    if (!result || !result.value) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
