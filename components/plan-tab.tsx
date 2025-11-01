@@ -5,9 +5,11 @@ import { motion } from "framer-motion"
 import { generateFitnessPlan } from "@/lib/gemini"
 import { updateUser, generateImage } from "@/lib/storage"
 import { jsPDF } from "jspdf"
+
 import html2canvas from "html2canvas"
 import ImageGalleryModal from "@/components/image-gallery-modal"
 import VoicePlayer from "@/components/voice-player"
+import { toPng } from "html-to-image";
 import type { User } from "@/types/user"
 
 interface PlanTabProps {
@@ -108,32 +110,48 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       if (!element) {
           throw new Error("Could not find element #plan-content");
       }
+      const dataUrl = await toPng(element);
+      const pdf = new jsPDF();
+      pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297);
+      pdf.save(`${user.name}-fitness-plan.pdf`);
 
-      const canvas = await html2canvas(element, {
-        useCORS: true,
-        backgroundColor: "#ffffff",
-      })
+
+      // const canvas = await html2canvas(element, {
+      //   backgroundColor: "#ffffff",
+      //   useCORS: true,
+      //   logging: false,
+      //   // Prevent reading unsupported color syntaxes
+      //   onclone: (clonedDoc) => {
+      //     // Reset background colors to avoid lab() parsing
+      //     clonedDoc.querySelectorAll("*").forEach((el) => {
+      //       const style = el.style;
+      //       if (style && style.color?.includes("lab")) style.color = "#000";
+      //       if (style && style.backgroundColor?.includes("lab")) style.backgroundColor = "#fff";
+      //     });
+      //   },
+      // });
       
-      const pdf = new jsPDF("p", "mm", "a4")
-      const imgData = canvas.toDataURL("image/png")
-      const imgWidth = 210
-      const pageHeight = 297
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      
+      // const pdf = new jsPDF("p", "mm", "a4")
+      // const imgData = canvas.toDataURL("image/png")
+      // const imgWidth = 210
+      // const pageHeight = 297
+      // const imgHeight = (canvas.height * imgWidth) / canvas.width
 
-      let heightLeft = imgHeight
-      let position = 0
+      // let heightLeft = imgHeight
+      // let position = 0
 
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
+      // pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+      // heightLeft -= pageHeight
 
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
-      }
+      // while (heightLeft >= 0) {
+      //   position = heightLeft - imgHeight
+      //   pdf.addPage()
+      //   pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+      //   heightLeft -= pageHeight
+      // }
 
-      pdf.save(`${user.name}-fitness-plan.pdf`)
+      // pdf.save(`${user.name}-fitness-plan.pdf`)
     } catch (error) {
       console.error("[v0] Failed to export PDF:", error)
       
