@@ -6,6 +6,7 @@ import { motion } from "framer-motion"
 import { getCurrentUser, logout } from "@/lib/storage"
 import { generatePersonalizedQuote } from "@/lib/gemini"
 import DashboardTabs from "@/components/dashboard-tabs"
+import { ThemeToggle } from "@/components/theme-toggle"
 import type { User } from "@/types/user"
 
 export default function DashboardPage() {
@@ -69,12 +70,15 @@ export default function DashboardPage() {
               </h1>
               <p className="text-gray-600 dark:text-gray-300 mt-1">Your personalized fitness journey starts here</p>
             </div>
-            <button
-              onClick={handleLogout}
-              className="px-6 py-2 border-2 border-red-500 text-red-500 rounded-lg font-semibold hover:bg-red-500 hover:text-white transition"
-            >
-              Logout
-            </button>
+            <div className="flex gap-4 items-center">
+              <ThemeToggle />
+              <button
+                onClick={handleLogout}
+                className="px-6 py-2 border-2 border-red-500 text-red-500 rounded-lg font-semibold hover:bg-red-500 hover:text-white transition"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>
