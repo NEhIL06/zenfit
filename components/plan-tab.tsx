@@ -70,6 +70,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       }
     } else {
       setConfirmingAction("plan") // Show confirmation
+      setErrorMessage(null) // Clear any errors
     }
   }
 
@@ -95,19 +96,24 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       }
     } else {
       setConfirmingAction("meal") // Show confirmation
+      setErrorMessage(null) // Clear any errors
     }
   }
 
   const handleExportPDF = async () => {
     setExporting(true)
+    setErrorMessage(null) // Clear previous errors
     try {
       const element = document.getElementById("plan-content")
-      if (!element) return
+      if (!element) {
+          throw new Error("Could not find element #plan-content");
+      }
 
       const canvas = await html2canvas(element, {
         useCORS: true,
         backgroundColor: "#ffffff",
       })
+      
       const pdf = new jsPDF("p", "mm", "a4")
       const imgData = canvas.toDataURL("image/png")
       const imgWidth = 210
@@ -130,7 +136,13 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       pdf.save(`${user.name}-fitness-plan.pdf`)
     } catch (error) {
       console.error("[v0] Failed to export PDF:", error)
-      setErrorMessage("Failed to export PDF") // Replaced alert()
+      
+      // *** NEW: Specific error handling for oklch ***
+      if (error instanceof Error && error.message.includes("oklch")) {
+        setErrorMessage('PDF Export Failed: Your PDF library is not compatible with modern CSS colors. Please run "npm install html2canvas@latest" in your terminal to fix this.');
+      } else {
+        setErrorMessage("Failed to export PDF") // Replaced alert()
+      }
     } finally {
       setExporting(false)
     }
@@ -138,6 +150,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
 
   const handleGenerateImage = async (name: string, type: "exercise" | "meal") => {
     setGeneratingImage(name)
+    setErrorMessage(null)
     try {
       const imageData = await generateImage(name, type)
       if (imageData) {
@@ -202,7 +215,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         )}
         <button
           onClick={handleExportPDF}
-          disabled={exporting || regenerating}
+          disabled={exporting || regenerating || !!confirmingAction}
           className="px-6 py-3 border-2 border-[#2D5C44] dark:border-[#10B981] text-[#2D5C44] dark:text-[#10B981] rounded-lg font-semibold hover:bg-[#2D5C44] hover:text-white dark:hover:bg-[#10B981] dark:hover:text-black disabled:opacity-50"
         >
           {exporting ? "Exporting..." : "Export as PDF"}
@@ -356,3 +369,4 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
     </div>
   )
 }
+

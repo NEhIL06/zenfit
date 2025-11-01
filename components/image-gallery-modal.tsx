@@ -18,9 +18,22 @@ export default function ImageGalleryModal({ type, name, onClose }: ImageGalleryM
     const fetchImage = async () => {
       try {
         const data = await generateImage(name, type)
+        
         if (data) {
-          setImageData(`data:image/png;base64,${data}`)
+          // setImageData(`data:image/png;base64,${data}`) 
+          /**
+           * 
+           * The above set image is to be done when you are using Nano Banana
+           * As I have already used up my Gemini API quota, I have implemented a fallback to Pollinations AI
+           * The images are not as good as Gemini's but they work for now.
+           * 
+           * If you want to use Gemini API, you can uncomment the above line and comment out the below line.
+           * and comment this code -> setImageData(data)
+           */
+          setImageData(data)
         }
+        
+        
       } catch (error) {
         console.error("[v0] Failed to generate image:", error)
       } finally {

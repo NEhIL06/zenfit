@@ -22,10 +22,18 @@ export async function POST(request: Request) {
       prompt = `Generate a realistic photo of ${name} in a clean food photography style, appetizing presentation, professional lighting, white plate on neutral background.`
     }
 
-    const response = await ai.models.generateContent({
+    let response:any;
+    try{response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
-      contents: prompt,
-    })
+      contents: prompt
+    })}catch(e){
+      console.log("Gemini API error:", e);
+      console.error("Starting Fallback image generation...");
+      const image = await fetch(`https://image.pollinations.ai/prompt/${prompt}`);
+      console.log("Fallback image URL:", image.url);
+      return NextResponse.json({ imageData: image.url });
+      
+    }
 
     let imageBase64:string = ""
     
