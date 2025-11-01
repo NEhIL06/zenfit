@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     }
 
     const ai = new GoogleGenAI({
-      apiKey: GEMINI_API_KEY,
+     apiKey: GEMINI_API_KEY,
     })
 
     let prompt: string

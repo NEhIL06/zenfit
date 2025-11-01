@@ -7,7 +7,7 @@ import { useEffect } from "react"
 interface VoicePlayerProps {
   content: string
   type: "workout" | "diet"
-  onError?: (message: string) => void // Added onError prop
+  onError?: (message: string) => void 
 }
 
 export default function VoicePlayer({ content, onError }: VoicePlayerProps) {
@@ -16,38 +16,38 @@ export default function VoicePlayer({ content, onError }: VoicePlayerProps) {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
 
   const handlePlay = async () => {
-    // If audio is already loaded
+    
     if (audioElement) {
       if (isPlaying) {
         audioElement.pause()
       } else {
         audioElement.play()
       }
-      // State will be set by the audio's onplay/onpause events
+      
       return
     }
 
-    // If audio is not loaded, fetch it
+    
     setIsLoading(true)
     try {
-      const audioData = await generateVoice(content) // Fetches base64 WAV data
+      const audioData = await generateVoice(content)
       if (audioData) {
-        // Corrected: Use the correct MIME type 'audio/wav'
+        
         const url = `data:audio/wav;base64,${audioData}`
         
-        // Create new Audio object to play
+        
         const audio = new Audio(url)
         audio.onplay = () => setIsPlaying(true)
         audio.onpause = () => setIsPlaying(false)
         audio.onended = () => setIsPlaying(false)
         
-        setAudioElement(audio) // Save audio element
-        audio.play() // Start playing
+        setAudioElement(audio) 
+        audio.play() 
       }
     } catch (error) {
       const errorMsg = "[v0] Failed to generate voice";
       console.error(errorMsg, error);
-      // Use onError callback instead of alert
+      
       if (onError) {
         onError("Failed to generate voice narration. Please try again.");
       }
@@ -56,7 +56,7 @@ export default function VoicePlayer({ content, onError }: VoicePlayerProps) {
     }
   }
 
-  // Clean up audio element on component unmount
+  
   useEffect(() => {
     return () => {
       if (audioElement) {

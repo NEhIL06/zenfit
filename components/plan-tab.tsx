@@ -17,7 +17,7 @@ interface PlanTabProps {
   onUserUpdate: (user: User) => void
 }
 
-// Helper function to convert workout plan JSON to a readable string for TTS
+
 function formatWorkoutForSpeech(workout_plan: any[]): string {
   if (!workout_plan || workout_plan.length === 0) return "No workout plan available.";
   let speech = "Here is your workout plan. ";
@@ -31,7 +31,6 @@ function formatWorkoutForSpeech(workout_plan: any[]): string {
   return speech;
 }
 
-// Helper function to convert diet plan JSON to a readable string for TTS
 function formatDietForSpeech(diet_plan: any[]): string {
   if (!diet_plan || diet_plan.length === 0) return "No diet plan available.";
   let speech = "Here is your diet plan. ";
@@ -55,9 +54,9 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
   const plan = user.plan
 
   const handleRegenerate = async () => {
-    // Replaced confirm() with state check
+    
     if (confirmingAction === "plan") {
-      setConfirmingAction(null) // Hide confirmation
+      setConfirmingAction(null) 
       setRegenerating(true)
       try {
         const newPlan = await generateFitnessPlan(user)
@@ -66,23 +65,23 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         onUserUpdate(updatedUser)
       } catch (error) {
         console.error("[v0] Failed to regenerate plan:", error)
-        setErrorMessage("Failed to regenerate plan") // Replaced alert()
+        setErrorMessage("Failed to regenerate plan") 
       } finally {
         setRegenerating(false)
       }
     } else {
-      setConfirmingAction("plan") // Show confirmation
-      setErrorMessage(null) // Clear any errors
+      setConfirmingAction("plan") 
+      setErrorMessage(null)
     }
   }
 
   const handleRegenerateMealPlan = async () => {
-    // Replaced confirm() with state check
+    
     if (confirmingAction === "meal") {
-      setConfirmingAction(null) // Hide confirmation
+      setConfirmingAction(null)
       setRegenerating(true)
       try {
-        const newPlan = await generateFitnessPlan(user) // Assuming this gets a full plan
+        const newPlan = await generateFitnessPlan(user) 
         const updatedPlan = {
           ...(plan || {}),
           diet_plan: newPlan.diet_plan,
@@ -92,19 +91,19 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         onUserUpdate(updatedUser)
       } catch (error) {
         console.error("[v0] Failed to regenerate meal plan:", error)
-        setErrorMessage("Failed to regenerate meal plan") // Replaced alert()
+        setErrorMessage("Failed to regenerate meal plan") 
       } finally {
         setRegenerating(false)
       }
     } else {
-      setConfirmingAction("meal") // Show confirmation
-      setErrorMessage(null) // Clear any errors
+      setConfirmingAction("meal")
+      setErrorMessage(null)
     }
   }
 
   const handleExportPDF = async () => {
     setExporting(true)
-    setErrorMessage(null) // Clear previous errors
+    setErrorMessage(null) 
     try {
       const element = document.getElementById("plan-content")
       if (!element) {
@@ -115,51 +114,20 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297);
       pdf.save(`${user.name}-fitness-plan.pdf`);
 
-
-      // const canvas = await html2canvas(element, {
-      //   backgroundColor: "#ffffff",
-      //   useCORS: true,
-      //   logging: false,
-      //   // Prevent reading unsupported color syntaxes
-      //   onclone: (clonedDoc) => {
-      //     // Reset background colors to avoid lab() parsing
-      //     clonedDoc.querySelectorAll("*").forEach((el) => {
-      //       const style = el.style;
-      //       if (style && style.color?.includes("lab")) style.color = "#000";
-      //       if (style && style.backgroundColor?.includes("lab")) style.backgroundColor = "#fff";
-      //     });
-      //   },
-      // });
-      
-      
-      // const pdf = new jsPDF("p", "mm", "a4")
-      // const imgData = canvas.toDataURL("image/png")
-      // const imgWidth = 210
-      // const pageHeight = 297
-      // const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-      // let heightLeft = imgHeight
-      // let position = 0
-
-      // pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      // heightLeft -= pageHeight
-
-      // while (heightLeft >= 0) {
-      //   position = heightLeft - imgHeight
-      //   pdf.addPage()
-      //   pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
-      //   heightLeft -= pageHeight
-      // }
-
-      // pdf.save(`${user.name}-fitness-plan.pdf`)
+      /**
+       * 
+       * Use the package html-to-image to convert the HTML element to an image.
+       * because html2canvas is not compatible with modern CSS colors.
+       * 
+       */
     } catch (error) {
       console.error("[v0] Failed to export PDF:", error)
       
-      // *** NEW: Specific error handling for oklch ***
+      
       if (error instanceof Error && error.message.includes("oklch")) {
         setErrorMessage('PDF Export Failed: Your PDF library is not compatible with modern CSS colors. Please run "npm install html2canvas@latest" in your terminal to fix this.');
       } else {
-        setErrorMessage("Failed to export PDF") // Replaced alert()
+        setErrorMessage("Failed to export PDF") 
       }
     } finally {
       setExporting(false)
@@ -190,7 +158,6 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
     )
   }
 
-  // Helper to cancel confirmation
   const cancelConfirmation = () => {
     setConfirmingAction(null)
   }
