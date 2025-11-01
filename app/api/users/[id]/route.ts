@@ -2,14 +2,15 @@ import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { ObjectId } from "mongodb"
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const updates = await request.json()
     const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
     const result = await usersCollection.findOneAndUpdate(
-      { _id: new ObjectId(params.id) },
+      { _id: new ObjectId(id) },
       { $set: updates },
       { returnDocument: "after" },
     )
@@ -25,12 +26,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   }
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
-    const user = await usersCollection.findOne({ _id: new ObjectId(params.id) })
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
