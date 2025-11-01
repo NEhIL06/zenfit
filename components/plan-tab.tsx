@@ -15,50 +15,86 @@ interface PlanTabProps {
   onUserUpdate: (user: User) => void
 }
 
+// Helper function to convert workout plan JSON to a readable string for TTS
+function formatWorkoutForSpeech(workout_plan: any[]): string {
+  if (!workout_plan || workout_plan.length === 0) return "No workout plan available.";
+  let speech = "Here is your workout plan. ";
+  workout_plan.forEach((day: any) => {
+    speech += `On ${day.day}, the focus is ${day.focus}. `;
+    speech += "Exercises are: ";
+    day.exercises?.forEach((ex: any) => {
+      speech += `${ex.name}, ${ex.sets} sets of ${ex.reps} reps, with ${ex.rest_seconds} seconds rest. `;
+    });
+  });
+  return speech;
+}
+
+// Helper function to convert diet plan JSON to a readable string for TTS
+function formatDietForSpeech(diet_plan: any[]): string {
+  if (!diet_plan || diet_plan.length === 0) return "No diet plan available.";
+  let speech = "Here is your diet plan. ";
+  diet_plan.forEach((meal: any) => {
+    speech += `For ${meal.meal}: `;
+    meal.items?.forEach((item: any) => {
+      speech += `${item.name}, ${item.calories} calories, ${item.protein_g} grams of protein. `;
+    });
+  });
+  return speech;
+}
+
 export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
   const [regenerating, setRegenerating] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [selectedImage, setSelectedImage] = useState<{ type: "exercise" | "meal"; name: string } | null>(null)
-  const [voiceUrls, setVoiceUrls] = useState<{ [key: string]: string }>({})
   const [generatingImage, setGeneratingImage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [confirmingAction, setConfirmingAction] = useState<"plan" | "meal" | null>(null)
 
   const plan = user.plan
 
   const handleRegenerate = async () => {
-    if (!confirm("This will regenerate your plan. Continue?")) return
-
-    setRegenerating(true)
-    try {
-      const newPlan = await generateFitnessPlan(user)
-      const updatedUser = { ...user, plan: newPlan }
-      updateUser(user.id, { plan: newPlan })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      console.error("[v0] Failed to regenerate plan:", error)
-      alert("Failed to regenerate plan")
-    } finally {
-      setRegenerating(false)
+    // Replaced confirm() with state check
+    if (confirmingAction === "plan") {
+      setConfirmingAction(null) // Hide confirmation
+      setRegenerating(true)
+      try {
+        const newPlan = await generateFitnessPlan(user)
+        const updatedUser = { ...user, plan: newPlan }
+        updateUser(user.id, { plan: newPlan })
+        onUserUpdate(updatedUser)
+      } catch (error) {
+        console.error("[v0] Failed to regenerate plan:", error)
+        setErrorMessage("Failed to regenerate plan") // Replaced alert()
+      } finally {
+        setRegenerating(false)
+      }
+    } else {
+      setConfirmingAction("plan") // Show confirmation
     }
   }
 
   const handleRegenerateMealPlan = async () => {
-    if (!confirm("This will regenerate your meal plan. Continue?")) return
-
-    setRegenerating(true)
-    try {
-      const newPlan = await generateFitnessPlan(user)
-      const updatedPlan = {
-        ...plan,
-        diet_plan: newPlan.diet_plan,
+    // Replaced confirm() with state check
+    if (confirmingAction === "meal") {
+      setConfirmingAction(null) // Hide confirmation
+      setRegenerating(true)
+      try {
+        const newPlan = await generateFitnessPlan(user) // Assuming this gets a full plan
+        const updatedPlan = {
+          ...(plan || {}),
+          diet_plan: newPlan.diet_plan,
+        }
+        const updatedUser = { ...user, plan: updatedPlan }
+        updateUser(user.id, { plan: updatedPlan })
+        onUserUpdate(updatedUser)
+      } catch (error) {
+        console.error("[v0] Failed to regenerate meal plan:", error)
+        setErrorMessage("Failed to regenerate meal plan") // Replaced alert()
+      } finally {
+        setRegenerating(false)
       }
-      const updatedUser = { ...user, plan: updatedPlan }
-      updateUser(user.id, { plan: updatedPlan })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      console.error("[v0] Failed to regenerate meal plan:", error)
-      alert("Failed to regenerate meal plan")
-    } finally {
-      setRegenerating(false)
+    } else {
+      setConfirmingAction("meal") // Show confirmation
     }
   }
 
@@ -94,7 +130,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       pdf.save(`${user.name}-fitness-plan.pdf`)
     } catch (error) {
       console.error("[v0] Failed to export PDF:", error)
-      alert("Failed to export PDF")
+      setErrorMessage("Failed to export PDF") // Replaced alert()
     } finally {
       setExporting(false)
     }
@@ -109,6 +145,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
       }
     } catch (error) {
       console.error("[v0] Error generating image:", error)
+      setErrorMessage("Failed to generate image")
     } finally {
       setGeneratingImage(null)
     }
@@ -122,8 +159,23 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
     )
   }
 
+  // Helper to cancel confirmation
+  const cancelConfirmation = () => {
+    setConfirmingAction(null)
+  }
+
   return (
     <div className="space-y-8">
+      {/* Error Message Display */}
+      {errorMessage && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{errorMessage}</span>
+          <span className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => setErrorMessage(null)}>
+            <svg className="fill-current h-6 w-6 text-red-500 cursor-pointer" role="button" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><title>Close</title><path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.03a1.2 1.2 0 1 1-1.697-1.697l3.03-3.651-3.03-3.651a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.03a1.2 1.2 0 1 1 1.697 1.697l-3.03 3.651 3.03 3.651a1.2 1.2 0 0 1 0 1.697z"/></svg>
+          </span>
+        </div>
+      )}
+
       {/* Summary */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -134,18 +186,23 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         <p className="text-lg leading-relaxed">{plan.summary}</p>
       </motion.div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-wrap gap-4">
+      {/* Action Buttons & Confirmation */}
+      <div className="flex flex-wrap gap-4 items-center">
         <button
           onClick={handleRegenerate}
-          disabled={regenerating}
+          disabled={regenerating || confirmingAction === 'meal'}
           className="px-6 py-3 bg-[#10B981] text-white rounded-lg font-semibold hover:bg-[#0a9370] disabled:opacity-50"
         >
-          {regenerating ? "Regenerating..." : "Regenerate Plan"}
+          {confirmingAction === 'plan' ? "Are you sure?" : (regenerating ? "Regenerating..." : "Regenerate Plan")}
         </button>
+        {confirmingAction === 'plan' && (
+          <button onClick={cancelConfirmation} className="px-6 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400">
+            Cancel
+          </button>
+        )}
         <button
           onClick={handleExportPDF}
-          disabled={exporting}
+          disabled={exporting || regenerating}
           className="px-6 py-3 border-2 border-[#2D5C44] dark:border-[#10B981] text-[#2D5C44] dark:text-[#10B981] rounded-lg font-semibold hover:bg-[#2D5C44] hover:text-white dark:hover:bg-[#10B981] dark:hover:text-black disabled:opacity-50"
         >
           {exporting ? "Exporting..." : "Export as PDF"}
@@ -163,10 +220,14 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         >
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-2xl font-bold text-[#2D5C44] dark:text-[#10B981]">Workout Plan</h3>
-            <VoicePlayer content={JSON.stringify(plan.workout_plan)} type="workout" />
+            <VoicePlayer
+              content={formatWorkoutForSpeech(plan.workout_plan)}
+              type="workout"
+              onError={setErrorMessage}
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {plan.workout_plan?.map((day:any, index: number) => (
+            {plan.workout_plan?.map((day: any, index: number) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -208,7 +269,11 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         >
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-2xl font-bold text-[#2D5C44] dark:text-[#10B981]">Diet Plan</h3>
-            <VoicePlayer content={JSON.stringify(plan.diet_plan)} type="diet" />
+            <VoicePlayer
+              content={formatDietForSpeech(plan.diet_plan)}
+              type="diet"
+              onError={setErrorMessage}
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {plan.diet_plan?.map((meal: any, index: number) => (
@@ -242,14 +307,19 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
             ))}
           </div>
 
-          <div className="mt-6 flex justify-center">
+          <div className="mt-6 flex flex-wrap gap-4 justify-center">
             <button
               onClick={handleRegenerateMealPlan}
-              disabled={regenerating}
+              disabled={regenerating || confirmingAction === 'plan'}
               className="px-6 py-3 bg-[#10B981] text-white rounded-lg font-semibold hover:bg-[#0a9370] disabled:opacity-50"
             >
-              {regenerating ? "Regenerating..." : "Regenerate Meal Plan"}
+              {confirmingAction === 'meal' ? "Are you sure?" : (regenerating ? "Regenerating..." : "Regenerate Meal Plan")}
             </button>
+            {confirmingAction === 'meal' && (
+              <button onClick={cancelConfirmation} className="px-6 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold hover:bg-gray-400">
+                Cancel
+              </button>
+            )}
           </div>
         </motion.div>
 
@@ -270,7 +340,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
                 transition={{ delay: 0.7 + index * 0.1 }}
                 className="flex items-start gap-4"
               >
-                <div className="w-8 h-8 rounded-full bg-[#10B981] text-white flex items-center justify-center flex-shrink-0 font-bold">
+                <div className="w-8 h-8 rounded-full bg-[#10B981] text-white flex items-center justify-center shrink-0 font-bold">
                   {index + 1}
                 </div>
                 <p className="text-gray-700 dark:text-gray-300 pt-1">{tip}</p>

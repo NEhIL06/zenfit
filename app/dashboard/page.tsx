@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 dark:from-black dark:to-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-b from-white to-gray-50 dark:from-black dark:to-gray-900 flex items-center justify-center">
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
@@ -58,7 +58,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 dark:from-black dark:to-gray-900">
+    <div className="min-h-screen bg-linear-to-b from-white to-gray-50 dark:from-black dark:to-gray-900">
       {/* Header */}
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -85,8 +85,8 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
         >
-          <div className="bg-gradient-to-r from-[#2D5C44] to-[#1a3a2a] dark:from-[#10B981] dark:to-[#0a7a5e] text-white rounded-xl p-6 shadow-lg">
-            <p className="text-lg italic font-light text-center">"{quote}"</p>
+          <div className="bg-linear-to-r from-[#2D5C44] to-primary-dark dark:from-[#10B981] dark:to-[#0a7a5e] text-white rounded-xl p-6 shadow-lg">
+            <p className="text-lg italic font-light text-center">&quot;{quote}&quot;</p>
           </div>
         </motion.div>
       )}

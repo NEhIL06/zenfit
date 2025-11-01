@@ -2,39 +2,69 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { generateVoice } from "@/lib/storage"
-
+import { generateVoice } from "@/lib/gemini-voice" 
+import { useEffect } from "react"
 interface VoicePlayerProps {
   content: string
   type: "workout" | "diet"
+  onError?: (message: string) => void // Added onError prop
 }
 
-export default function VoicePlayer({ content, type }: VoicePlayerProps) {
+export default function VoicePlayer({ content, onError }: VoicePlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
 
   const handlePlay = async () => {
-    if (audioUrl) {
-      setIsPlaying(!isPlaying)
+    // If audio is already loaded
+    if (audioElement) {
+      if (isPlaying) {
+        audioElement.pause()
+      } else {
+        audioElement.play()
+      }
+      // State will be set by the audio's onplay/onpause events
       return
     }
 
+    // If audio is not loaded, fetch it
     setIsLoading(true)
     try {
-      const audioData = await generateVoice(content)
+      const audioData = await generateVoice(content) // Fetches base64 WAV data
       if (audioData) {
-        const audioUrl = `data:audio/mp3;base64,${audioData}`
-        setAudioUrl(audioUrl)
-        setIsPlaying(true)
+        // Corrected: Use the correct MIME type 'audio/wav'
+        const url = `data:audio/wav;base64,${audioData}`
+        
+        // Create new Audio object to play
+        const audio = new Audio(url)
+        audio.onplay = () => setIsPlaying(true)
+        audio.onpause = () => setIsPlaying(false)
+        audio.onended = () => setIsPlaying(false)
+        
+        setAudioElement(audio) // Save audio element
+        audio.play() // Start playing
       }
     } catch (error) {
-      console.error("[v0] Failed to generate voice:", error)
-      alert("Failed to generate voice narration")
+      const errorMsg = "[v0] Failed to generate voice";
+      console.error(errorMsg, error);
+      // Use onError callback instead of alert
+      if (onError) {
+        onError("Failed to generate voice narration. Please try again.");
+      }
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Clean up audio element on component unmount
+  useEffect(() => {
+    return () => {
+      if (audioElement) {
+        audioElement.pause()
+        setAudioElement(null)
+      }
+    }
+  }, [audioElement])
 
   return (
     <div className="flex items-center gap-2">
@@ -48,16 +78,7 @@ export default function VoicePlayer({ content, type }: VoicePlayerProps) {
         <span>{isLoading ? "Loading..." : isPlaying ? "Stop" : "Play"}</span>
         <span>{isLoading ? "⏳" : isPlaying ? "⏹️" : "🎧"}</span>
       </motion.button>
-
-      {audioUrl && (
-        <audio
-          src={audioUrl}
-          autoPlay={isPlaying}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
-          className="hidden"
-        />
-      )}
     </div>
   )
 }
+

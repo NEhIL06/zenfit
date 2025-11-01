@@ -1,4 +1,4 @@
-export async function generateVoiceNarration(text: string, voiceName = "Puck"): Promise<string> {
+export async function generateVoice(text: string, voiceName = "Puck"): Promise<string> {
   try {
     const response = await fetch("/api/generate-voice", {
       method: "POST",
@@ -8,6 +8,11 @@ export async function generateVoiceNarration(text: string, voiceName = "Puck"): 
       body: JSON.stringify({ text, voiceName }),
     })
 
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to generate voice");
+    }
+
     const data = await response.json()
     const audioData = data.audioData
 
@@ -15,17 +20,8 @@ export async function generateVoiceNarration(text: string, voiceName = "Puck"): 
       throw new Error("No audio data received")
     }
 
-    // Convert base64 to blob
-    const byteCharacters = atob(audioData)
-    const byteNumbers = new Array(byteCharacters.length)
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i)
-    }
-    const byteArray = new Uint8Array(byteNumbers)
-    const audioBlob = new Blob([byteArray], { type: "audio/wav" })
-
-    // Create blob URL
-    return URL.createObjectURL(audioBlob)
+    // Return the base64-encoded WAV string directly
+    return audioData
   } catch (error) {
     console.error("Error generating voice narration:", error)
     throw error
