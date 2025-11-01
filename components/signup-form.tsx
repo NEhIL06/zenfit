@@ -80,7 +80,14 @@ export default function SignupForm({ onComplete }: SignupFormProps) {
     try {
       setLoading(true)
       setError("")
-
+      await fetch('/api/users',{
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({formData}),
+      })
+      
       // Generate fitness plan
       const plan = await generateFitnessPlan(formData)
 

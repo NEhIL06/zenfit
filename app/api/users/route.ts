@@ -4,7 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb"
 export async function POST(request: Request) {
   try {
     const userData = await request.json()
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
     const existingUser = await usersCollection.findOne({ email: userData.email })
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Email required" }, { status: 400 })
     }
 
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
     const user = await usersCollection.findOne({ email })

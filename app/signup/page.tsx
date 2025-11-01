@@ -11,7 +11,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 dark:from-black dark:to-gray-900 py-12 px-4">
+    <div className="min-h-screen bg-linear-to-b from-white to-gray-50 dark:from-black dark:to-gray-900 py-12 px-4">
       <div className="max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

@@ -3,7 +3,7 @@ import { connectToDatabase } from "@/lib/mongodb"
 
 export async function GET() {
   try {
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const milestonesCollection = db.collection("milestones")
 
     const milestones = await milestonesCollection.find({}).sort({ createdAt: -1 }).limit(100).toArray()
@@ -18,7 +18,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const { userId, userName, content } = await request.json()
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const milestonesCollection = db.collection("milestones")
 
     const milestone = {

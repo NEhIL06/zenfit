@@ -5,7 +5,7 @@ import { ObjectId } from "mongodb"
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const updates = await request.json()
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
     const result = await usersCollection.findOneAndUpdate(
@@ -27,7 +27,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
-    const db = await connectToDatabase()
+    const {db} = await connectToDatabase()
     const usersCollection = db.collection("users")
 
     const user = await usersCollection.findOne({ _id: new ObjectId(params.id) })
