@@ -295,6 +295,15 @@ npm start
    - Check build logs in Vercel for specific errors
    - Verify Node.js version compatibility
 
+## Future Features
+- In the Future first there are Scope for UI improvements
+- Adding a chatbot to the app to help users with their fitness journey and provide personalized advice
+- Adding a feature to track and analyze user progress
+- Adding a feature to Manage their Milestones posts
+
+
+
+
 ## 📄 License
 
 This project is private and proprietary.

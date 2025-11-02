@@ -8,7 +8,7 @@ const geistSans = Geist({ subsets: ["latin"] })
 const geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "AI Fitness Coach",
+  title: "Zenletics.ai",
   description: "Your personalized AI-powered fitness companion",
 }
 
