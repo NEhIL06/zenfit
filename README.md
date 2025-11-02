@@ -29,16 +29,14 @@ Track your personal fitness achievements (e.g., first 5k run, 10 push-up streak)
 
 ### 💬 Personalized Quotes Dashboard
 
-A dynamic section on the dashboard where AI-generated quotes appear based on user progress, emotional tone, and last workout activity.
+A dynamic section on the dashboard where AI-generated quotes appear based on user's details (e.g., age, gender, fitness goals).
 
 ## 🚧 Challenges Faced & Solutions
 
 | Challenge | Description | Solution |
 |-----------|-------------|----------|
-| API Rate Limits | Nano Banana's free tier limited image generations | Implemented fallback to Gemini's Vision API seamlessly |
-| Voice Latency with 11Labs | 11Labs TTS caused noticeable lag on low-bandwidth networks | Switched to Gemini TTS for low-latency and built-in caching layer |
-| Data Sync Between Dashboard Tabs | Plans, milestones, and quotes were stored separately | Introduced unified user schema with context-based API routing in Next.js App Router |
-| Theme Persistence | Users lost theme preferences on reload | Integrated localStorage-based theme sync via next-themes |
+| API Rate Limits | Nano Banana's free tier limited image generations | Implemented fallback to pollinations ai API seamlessly |
+| Free Tier limits with 11Labs | 11Labs TTS has limit in the free tier | Switched to gemini-2.5-flash-preview-tts for low-latency and built-in caching layer |
 | Motivation Drop-off | Users needed personalized engagement | Added personalized motivational quote system that adapts to user progress |
 
 ## 🛠️ Tech Stack
