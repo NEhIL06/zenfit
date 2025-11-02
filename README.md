@@ -5,6 +5,7 @@ A comprehensive, AI-powered fitness application built with Next.js that provides
 ## ✨ Features
 
 ### Core Functionality
+
 - **AI-Powered Personalization**: Generate customized 7-day workout and diet plans using Google Gemini AI
 - **User Authentication**: Secure signup and login system with user profile management
 - **Personalized Quotes**: Get AI-generated motivational quotes tailored to your fitness journey
@@ -14,10 +15,31 @@ A comprehensive, AI-powered fitness application built with Next.js that provides
 - **Dashboard**: Comprehensive dashboard with tabs for plans, milestones, and user management
 
 ### UI/UX Features
+
 - **Dark/Light Mode**: Toggle between dark and light themes with system preference detection
 - **Responsive Design**: Fully responsive design that works on all devices
 - **Modern UI**: Built with Tailwind CSS and Radix UI components
 - **Smooth Animations**: Framer Motion animations for enhanced user experience
+
+## 📊 Additional Features
+
+### 🏆 Milestones Page
+
+Track your personal fitness achievements (e.g., first 5k run, 10 push-up streak) and share them with friends through a public link or social card.
+
+### 💬 Personalized Quotes Dashboard
+
+A dynamic section on the dashboard where AI-generated quotes appear based on user progress, emotional tone, and last workout activity.
+
+## 🚧 Challenges Faced & Solutions
+
+| Challenge | Description | Solution |
+|-----------|-------------|----------|
+| API Rate Limits | Nano Banana's free tier limited image generations | Implemented fallback to Gemini's Vision API seamlessly |
+| Voice Latency with 11Labs | 11Labs TTS caused noticeable lag on low-bandwidth networks | Switched to Gemini TTS for low-latency and built-in caching layer |
+| Data Sync Between Dashboard Tabs | Plans, milestones, and quotes were stored separately | Introduced unified user schema with context-based API routing in Next.js App Router |
+| Theme Persistence | Users lost theme preferences on reload | Integrated localStorage-based theme sync via next-themes |
+| Motivation Drop-off | Users needed personalized engagement | Added personalized motivational quote system that adapts to user progress |
 
 ## 🛠️ Tech Stack
 
@@ -34,6 +56,7 @@ A comprehensive, AI-powered fitness application built with Next.js that provides
 ## 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
+
 - Node.js 18+ and npm/yarn/pnpm
 - MongoDB database (local or cloud instance like MongoDB Atlas)
 - Google Gemini API key
@@ -44,7 +67,7 @@ Before you begin, ensure you have the following installed:
 
 ```bash
 git clone <your-repo-url>
-cd y
+cd ai-fitness-coach
 ```
 
 ### 2. Install Dependencies
@@ -161,7 +184,7 @@ Vercel is the recommended platform for deploying this Next.js application. Follo
 ## 📁 Project Structure
 
 ```
-y/
+ai-fitness-coach/
 ├── app/                    # Next.js app directory
 │   ├── api/               # API routes
 │   │   ├── generate-image/
@@ -221,6 +244,7 @@ The theme is implemented using `next-themes` and Tailwind CSS dark mode classes.
 ## 📝 API Routes
 
 ### Public Endpoints
+
 - `GET /api/generate-quote` - Generate a motivational quote
 - `POST /api/generate-plan` - Generate personalized fitness plan
 - `POST /api/generate-image` - Generate fitness motivation image
