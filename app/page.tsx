@@ -7,7 +7,7 @@ import Navbar from "@/components/navbar"
 import Footer from "@/components/footer"
 import { generateMotivationalQuote } from "@/lib/gemini"
 import { Dumbbell, Heart, TrendingUp, Users } from "lucide-react"
-
+import {Analytics} from '@vercel/analytics/next'
 export default function Home() {
   const [quote, setQuote] = useState("")
   const [loading, setLoading] = useState(true)
@@ -53,6 +53,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white dark:bg-black relative overflow-hidden">
       <Navbar />
+      <Analytics />
 
       {/* Hero Section with Background Image */}
       <section className="relative min-h-screen flex items-center justify-center px-4 pt-20">
