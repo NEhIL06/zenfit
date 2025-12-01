@@ -5,11 +5,27 @@
 > **Your Personal AI-Powered Fitness Coach.**  
 > Intelligent workout planning, real-time form analysis, and science-backed nutrition advice—all powered by advanced RAG and Multimodal AI.
 
-## 🚀 Overview
+---
+
+## � Table of Contents
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [System Architecture (HLD)](#-system-architecture-hld)
+- [Low-Level Design (LLD)](#-low-level-design-lld)
+- [Data Flow](#-data-flow)
+- [Tech Stack](#-tech-stack)
+- [Getting Started](#-getting-started)
+- [API Reference](#-api-reference)
+
+---
+
+## �🚀 Overview
 
 Zenletics is a cutting-edge fitness application that leverages the power of Generative AI to provide personalized health and wellness guidance. Unlike standard fitness apps, Zenletics uses a **Self-Reflective Retrieval Augmented Generation (Self-RAG)** engine to ensure advice is accurate, context-aware, and scientifically grounded.
 
 It combines **Google Gemini 2.5 Flash** for high-speed reasoning and vision capabilities with **ChromaDB** for vector storage, creating a system that "thinks" before it answers.
+
+---
 
 ## ✨ Key Features
 
@@ -19,45 +35,132 @@ It combines **Google Gemini 2.5 Flash** for high-speed reasoning and vision capa
 -   **⚡ Real-Time Streaming**: Experience zero-latency conversations with streaming responses.
 -   **🔍 Smart Web Search Fallback**: If the internal knowledge base is insufficient, the system autonomously performs a privacy-focused web search (DuckDuckGo) to find the latest information.
 
-## 🛠️ Tech Stack
+---
 
-### Frontend
--   **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Turbopack)
--   **Styling**: [TailwindCSS](https://tailwindcss.com/) v4 & [Shadcn/UI](https://ui.shadcn.com/)
--   **State Management**: React Hooks & Server Actions
+## 🏗️ System Architecture (HLD)
 
-### Backend & AI
--   **LLM**: Google Gemini 2.5 Flash
--   **Orchestration**: [LangGraph](https://langchain-ai.github.io/langgraph/) (Stateful Agents)
--   **Vector Database**: [ChromaDB](https://www.trychroma.com/) (Cloud Client)
--   **Embeddings**: HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
--   **Search**: DuckDuckGo Search API
+The system follows a modern **Serverless Microservices** architecture pattern, leveraging Next.js API routes as the primary controller layer.
 
-## 🏗️ System Architecture
+### High-Level Components
 
-The system follows a modern serverless architecture leveraging Next.js API routes as the backend controller.
+1.  **Client Layer**: A responsive React application (Next.js) handling UI/UX, state management, and real-time updates.
+2.  **Service Layer**: Next.js API Routes acting as the orchestration layer, managing authentication, request validation, and routing to AI services.
+3.  **Intelligence Layer**: The core brain of the application, consisting of LangGraph agents and Gemini LLMs.
+4.  **Data Layer**: 
+    -   **ChromaDB**: Stores vector embeddings of fitness knowledge and user history.
+    -   **HuggingFace**: Provides inference for text embeddings.
+    -   **DuckDuckGo**: External knowledge source for fallback retrieval.
+
+### Architecture Diagram
 
 ```mermaid
 graph TD
-    User[User Client] -->|HTTPS| NextApp[Next.js App Router]
+    User[User Client] -->|HTTPS/JSON| NextApp[Next.js App Router]
     
-    subgraph "Backend Services"
+    subgraph "Service Layer"
         NextApp -->|API Route| ChatAPI[Chat Endpoint]
+        ChatAPI -->|Auth Check| Auth[Authentication]
+    end
+    
+    subgraph "Intelligence Layer"
         ChatAPI -->|Orchestrate| SelfRAG[LangGraph Workflow]
-        
-        SelfRAG -->|Vector Search| Chroma[ChromaDB]
         SelfRAG -->|Generate/Vision| Gemini[Gemini 2.5 Flash]
         SelfRAG -->|Fallback Search| DDG[DuckDuckGo]
     end
     
     subgraph "Data Layer"
+        SelfRAG -->|Vector Search| Chroma[ChromaDB]
         Chroma <-->|Embeddings| HF[HuggingFace Inference]
     end
+    
+    style User fill:#f9f,stroke:#333
+    style NextApp fill:#bbf,stroke:#333
+    style SelfRAG fill:#bfb,stroke:#333
+    style Chroma fill:#ff9,stroke:#333
 ```
 
-## 🔄 RAG Pipeline Flow
+---
 
-The core intelligence of Zenletics lies in its **Self-RAG** pipeline. This workflow ensures high-quality responses by grading retrieved documents and deciding whether to use internal knowledge or fetch external data.
+## � Low-Level Design (LLD)
+
+### Core Modules
+
+#### 1. Self-RAG Engine (`lib/ai-trainer/self-rag.ts`)
+The central nervous system of the AI trainer. It implements a state machine using `LangGraph`.
+
+*   **State**: Tracks `question`, `documents`, `generation`, `retryCount`, and `isFitnessQuery`.
+*   **Nodes**:
+    *   `retrieve`: Fetches docs from VectorStore.
+    *   `grade`: Evaluates doc relevance using Gemini.
+    *   `webSearch`: Fallback to DDG if docs are poor.
+    *   `generate`: Synthesizes final answer.
+
+#### 2. Vector Store (`lib/ai-trainer/vector-store.ts`)
+Manages interactions with ChromaDB.
+
+*   **Pattern**: Singleton.
+*   **Collections**:
+    *   `fitness_global_knowledge`: Shared verified fitness data.
+    *   `fitness_user_{userId}`: Personalized user data.
+*   **Embedding**: Uses `sentence-transformers/all-MiniLM-L6-v2` via HuggingFace Inference API.
+
+#### 3. Multimodal Processor (`lib/ai-trainer/multimodal.ts`)
+Handles image inputs for form correction.
+
+*   **Input**: Base64 image strings.
+*   **Process**: Sends to Gemini Vision model with specific "Form Analysis" system prompts.
+*   **Output**: Textual critique and correction suggestions.
+
+### Class Diagram
+
+```mermaid
+classDiagram
+    class SelfRAG {
+        +StateGraph workflow
+        +run(question, userId, images)
+        -classifyQuery(question)
+        -retrieve(state)
+        -gradeDocuments(state)
+        -generate(state)
+    }
+    
+    class FitnessVectorStore {
+        +addDocuments(docs, collection)
+        +searchForUser(query, userId)
+        -embedTextHF(text)
+    }
+    
+    class GeminiHelper {
+        +generateText(prompt)
+        +analyzeImage(base64)
+    }
+    
+    SelfRAG --> FitnessVectorStore : uses
+    SelfRAG --> GeminiHelper : uses
+    FitnessVectorStore ..> ChromaDB : connects
+```
+
+---
+
+## 🔄 Data Flow
+
+The following sequence describes the lifecycle of a user request, from input to response.
+
+### Request Lifecycle
+
+1.  **User Input**: User sends a text message (and optionally an image) via the Chat UI.
+2.  **API Handling**: `POST /api/ai-trainer/chat` receives the payload.
+3.  **Classification**: The system first classifies the intent:
+    *   *General*: "Hi", "How are you?" -> Direct LLM response.
+    *   *Fitness*: "How to do a deadlift?", "Fix my form" -> Enters RAG Pipeline.
+4.  **RAG Execution**:
+    *   **Retrieve**: System converts query to vector -> Searches ChromaDB.
+    *   **Grade**: LLM checks if retrieved docs match the query.
+    *   **Decide**: If docs are good -> Generate. If bad -> Web Search.
+5.  **Generation**: LLM generates a response using the retrieved context and specific fitness persona instructions.
+6.  **Response**: JSON payload returned to client (or streamed).
+
+### RAG Pipeline Flowchart
 
 ```mermaid
 graph TD
@@ -82,14 +185,23 @@ graph TD
     style Generate fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
-### Pipeline Steps:
-1.  **Classify**: The AI determines if the query is fitness-related or general conversation.
-2.  **Retrieve**: Fetches relevant documents from ChromaDB using semantic search.
-3.  **Grade**: A specialized "Grader Agent" evaluates if the retrieved documents actually answer the user's question.
-4.  **Decide**:
-    *   If documents are **relevant**, generate an answer immediately.
-    *   If documents are **irrelevant** or missing, trigger a **Web Search** to get fresh data.
-5.  **Generate**: Synthesizes the final answer using the best available context (internal or external).
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+-   **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Turbopack)
+-   **Styling**: [TailwindCSS](https://tailwindcss.com/) v4 & [Shadcn/UI](https://ui.shadcn.com/)
+-   **State Management**: React Hooks & Server Actions
+
+### Backend & AI
+-   **LLM**: Google Gemini 2.5 Flash
+-   **Orchestration**: [LangGraph](https://langchain-ai.github.io/langgraph/) (Stateful Agents)
+-   **Vector Database**: [ChromaDB](https://www.trychroma.com/) (Cloud Client)
+-   **Embeddings**: HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
+-   **Search**: DuckDuckGo Search API
+
+---
 
 ## 🚀 Getting Started
 
@@ -131,15 +243,37 @@ graph TD
     ```
     Open [http://localhost:3000](http://localhost:3000) to see the app.
 
-## 🤝 Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 📡 API Reference
 
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
+### Chat Endpoint
+
+**URL**: `/api/ai-trainer/chat`  
+**Method**: `POST`
+
+**Request Body**
+```json
+{
+  "message": "How do I improve my bench press?",
+  "userId": "user_123",
+  "images": ["base64_string_optional"],
+  "conversationId": "conv_abc"
+}
+```
+
+**Response**
+```json
+{
+  "response": "To improve your bench press, focus on...",
+  "sources": [
+    { "content": "...", "score": 0.89 }
+  ],
+  "conversationId": "conv_abc"
+}
+```
+
+---
 
 ## 📄 License
 
