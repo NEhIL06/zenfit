@@ -1,102 +1,137 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVectorStore } from "@/lib/ai-trainer/vector-store";
-import { Document } from "@langchain/core/documents";
+import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 
-/**
- * POST /api/ai-trainer/documents
- * Upload and ingest documents (Global or User-specific)
- */
+import { embedText } from "@/lib/gemini";
+import { getCollection } from "@/lib/chroma";
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
-    const isUserSpecific = formData.get("userSpecific") === "true";
     const userId = formData.get("userId") as string;
+    const isUserSpecific = formData.get("userSpecific") === "true";
 
     if (!file) {
-      return NextResponse.json(
-        { error: "File is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "File is required" }, { status: 400 });
     }
 
     if (!userId) {
       return NextResponse.json(
-        { error: "Unauthorized — userId missing" },
+        { error: "Unauthorized — userId required" },
         { status: 401 }
       );
     }
 
-    console.log(`[Docs API] Uploading file "${file.name}" for user "${userId}"`);
+    console.log(`
+[Docs API] Upload request:
+  file: ${file.name}
+  user: ${userId}
+  scope: ${isUserSpecific ? "USER" : "GLOBAL"}
+    `);
 
-    // Read raw text
+    // Read file contents
     let text = await file.text();
 
-    // (Optional) PDF text extraction placeholder
+    // PDF Placeholder
     if (file.type === "application/pdf") {
-      console.warn("[Docs API] PDF detected — add PDF extraction logic");
-      // TODO: PDF parsing — e.g., pdf-parse
-      // text = await extractPdfText(file);
+      console.warn("[Docs API] PDF detected — implement PDF extraction later.");
+      // TODO: pdf-parse or pdf.js pipeline
     }
 
-    if (!text || text.trim().length === 0) {
+    if (!text.trim()) {
       return NextResponse.json(
         { error: "File contains no readable text." },
         { status: 400 }
       );
     }
 
-    // Build LangChain Document
-    const document = new Document({
-      pageContent: text,
-      metadata: {
-        filename: file.name,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: userId,
-        scope: isUserSpecific ? "user" : "global",
-      },
+    // ---------- CHUNKING ----------
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 3000,
+      chunkOverlap: 200,
     });
 
-    const vectorStore = getVectorStore();
-    let documentIds: string[] = [];
+    const chunks = await splitter.splitText(text);
+    console.log(`[Docs API] Split into ${chunks.length} chunks.`);
 
-    if (isUserSpecific) {
-      console.log(`[Docs API] Adding to USER collection: ${userId}`);
-      documentIds = await vectorStore.addUserDocuments(userId, [document]);
-    } else {
-      console.log(`[Docs API] Adding to GLOBAL collection`);
-      documentIds = await vectorStore.addGlobalDocuments([document]);
+    if (chunks.length === 0) {
+      return NextResponse.json(
+        { error: "Document could not be chunked properly." },
+        { status: 400 }
+      );
     }
 
+    // ---------- COLLECTION ----------
+    const collectionName = isUserSpecific
+      ? `user_${userId}`
+      : "global_documents";
+
+    const collection = await getCollection(collectionName);
+
+    // ---------- EMBEDDINGS ----------
+    const embeddings: number[][] = [];
+
+    for (const chunk of chunks) {
+      const vec = await embedText(chunk);
+
+      if (!vec || vec.length === 0) {
+        console.warn("[Docs API] Empty embedding skipped.");
+        continue;
+      }
+      embeddings.push(vec);
+    }
+
+    console.log(`[Docs API] Generated ${embeddings.length} embeddings.`);
+
+    if (embeddings.length === 0) {
+      return NextResponse.json(
+        { error: "Embedding generation failed." },
+        { status: 500 }
+      );
+    }
+
+    // ---------- IDS + METADATA ----------
+    const ids = chunks.map((_, i) => `${file.name}-${userId}-${Date.now()}-${i}`);
+
+    const metadatas = chunks.map((_, i) => ({
+      filename: file.name,
+      chunk: i,
+      userId,
+      scope: isUserSpecific ? "user" : "global",
+      uploadedAt: new Date().toISOString(),
+    }));
+
+    // ---------- ADD TO CHROMA ----------
+    await collection.add({
+      ids,
+      documents: chunks,
+      embeddings,
+      metadatas,
+    });
+
     console.log(
-      `[Docs API] Successfully added document "${file.name}" → ${documentIds.length} chunks`
+      `[Docs API] Stored ${chunks.length} chunks into collection "${collectionName}".`
     );
 
     return NextResponse.json({
       success: true,
       filename: file.name,
-      documentIds,
-      chunkCount: documentIds.length,
-      scope: isUserSpecific ? "user" : "global",
+      chunks: chunks.length,
+      collection: collectionName,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Docs API] ERROR:", error);
 
     return NextResponse.json(
       {
-        error: "Failed to upload/injest document",
-        details: error instanceof Error ? error.message : "Unknown",
+        error: "Failed to upload document",
+        details: error?.message || "Unknown",
       },
       { status: 500 }
     );
   }
 }
 
-/**
- * GET /api/ai-trainer/documents
- * List documents uploaded by a user
- * (Add DB logic later — placeholder for now)
- */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -109,20 +144,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    console.log(`[Docs API] Listing documents for ${userId}`);
-
-    // TODO: integrate MongoDB storing metadata about documents
+    // TODO: Store metadata in MongoDB
     return NextResponse.json({
       documents: [],
-      note: "Document listing DB not implemented yet.",
+      message: "Document listing not implemented yet.",
     });
   } catch (error) {
-    console.error("[Docs API] Error listing documents:", error);
     return NextResponse.json(
-      {
-        error: "Failed to list documents",
-        details: error instanceof Error ? error.message : "Unknown",
-      },
+      { error: "Failed to list documents" },
       { status: 500 }
     );
   }

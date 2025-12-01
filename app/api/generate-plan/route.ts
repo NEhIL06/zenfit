@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
+import { connectToDatabase } from "@/lib/mongodb"
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 export async function POST(request: Request) {
   try {
     const userDetails = await request.json()
+    const userId = userDetails.userId || `user_${Date.now()}`
 
     const prompt = `You are a certified fitness coach and nutrition expert.
 Given the user's details, generate a personalized 7-day workout and diet plan.
@@ -67,6 +69,29 @@ Output JSON only in this format:
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
       const plan = JSON.parse(jsonMatch[0])
+
+      // Store in MongoDB
+      const { db } = await connectToDatabase()
+      const plansCollection = db.collection("user_plans")
+
+      await plansCollection.updateOne(
+        { userId },
+        {
+          $set: {
+            userId,
+            formData: userDetails,
+            plan,
+            updatedAt: new Date(),
+          },
+          $setOnInsert: {
+            createdAt: new Date(),
+          }
+        },
+        { upsert: true }
+      )
+
+      console.log(`[Plan API] Stored plan for user: ${userId}`)
+
       return NextResponse.json(plan)
     }
 

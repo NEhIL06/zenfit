@@ -1,6 +1,6 @@
 // lib/chroma.ts
 
-import { CloudClient } from "chromadb";
+import { CloudClient,Collection } from "chromadb";
 
 /**
  * Initialize Chroma Cloud Client
@@ -25,19 +25,8 @@ export const chroma = new CloudClient({
 export async function getCollection(name: string) {
   try {
     console.log(`[Chroma] Fetching collection: ${name}`);
-    return await chroma.getCollection({ name });
+    return await chroma.getOrCreateCollection({ name });
   } catch (err: any) {
-    const msg = err?.message || "";
-
-    if (msg.includes("not found") || err?.status === 404) {
-      console.log(`[Chroma] Creating new collection: ${name}`);
-
-      return await chroma.createCollection({
-        name,
-        metadata: { source: "zenletics" },
-      });
-    }
-
     throw err;
   }
 }

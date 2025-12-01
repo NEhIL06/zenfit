@@ -23,6 +23,27 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
     const [input, setInput] = useState("")
     const [loading, setLoading] = useState(false)
 
+    // Load history on mount
+    useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem(`chat_history_${userId}`)
+            if (saved) {
+                try {
+                    setMessages(JSON.parse(saved))
+                } catch (e) {
+                    console.error("Failed to parse chat history", e)
+                }
+            }
+        }
+    })
+
+    // Save history when messages change
+    const saveHistory = (newMessages: Message[]) => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`chat_history_${userId}`, JSON.stringify(newMessages))
+        }
+    }
+
     const sendMessage = async () => {
         if (!input.trim()) return
 
@@ -31,16 +52,27 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
             content: input,
             id: Date.now().toString()
         }
-        setMessages((prev) => [...prev, userMessage])
+
+        const newMessages = [...messages, userMessage]
+        setMessages(newMessages)
+        saveHistory(newMessages)
+
         setInput("")
         setLoading(true)
 
         try {
+            // Prepare history for API (exclude current message and limit to last 10)
+            const history = messages.slice(-10).map(m => ({
+                role: m.role,
+                content: m.content
+            }))
+
             const response = await fetch("/api/ai-trainer/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: input,
+                    chatHistory: history,
                     conversationId: "temp",
                     userId: userId,
                 }),
@@ -59,7 +91,9 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 id: Date.now().toString(),
             }
 
-            setMessages((prev) => [...prev, aiMessage])
+            const updatedMessages = [...newMessages, aiMessage]
+            setMessages(updatedMessages)
+            saveHistory(updatedMessages)
         } catch (error) {
             console.error("Error sending message:", error)
             setMessages((prev) => [

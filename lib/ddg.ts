@@ -1,28 +1,17 @@
 // lib/ddg.ts
 
-export async function duckSearch(query: string) {
-  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(
-    query
-  )}&format=json&no_html=1&skip_disambig=1`;
-
-  const res = await fetch(url);
-
-  if (!res.ok) throw new Error("DuckDuckGo API failed");
+export async function webSearchfunc(query: string) {
+  const res = await fetch(
+    `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json`
+  );
 
   const data = await res.json();
-  const out: any[] = [];
 
-  if (data.RelatedTopics) {
-    for (const t of data.RelatedTopics) {
-      if (t.Text) {
-        out.push({
-          title: t.Text.split(" - ")[0],
-          description: t.Text,
-          url: t.FirstURL,
-        });
-      }
-    }
-  }
-
-  return out.slice(0, 5);
+  return data.query.search.slice(0, 5).map((r: any) => ({
+    title: r.title,
+    description: r.snippet,
+    url: `https://en.wikipedia.org/wiki/${encodeURIComponent(r.title)}`,
+  }));
 }
+
+

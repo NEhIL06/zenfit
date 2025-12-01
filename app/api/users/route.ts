@@ -3,23 +3,23 @@ import { connectToDatabase } from "@/lib/mongodb"
 
 export async function POST(request: Request) {
   try {
-    const userData = await request.json()
-    const {db} = await connectToDatabase()
+    const { formData } = await request.json()
+    const { db } = await connectToDatabase()
     const usersCollection = db.collection("users")
 
-    const existingUser = await usersCollection.findOne({ email: userData.email })
+    const existingUser = await usersCollection.findOne({ "formData.email": formData.email })
     if (existingUser) {
       return NextResponse.json({ error: "User already exists" }, { status: 400 })
     }
 
     const result = await usersCollection.insertOne({
-      ...userData,
+      formData,
       createdAt: new Date(),
     })
 
     return NextResponse.json({
-      id: result.insertedId,
-      ...userData,
+      id: result.insertedId.toString(), // Return as string
+      formData,
     })
   } catch (error) {
     console.error("[v0] Error creating user:", error)
@@ -36,10 +36,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Email required" }, { status: 400 })
     }
 
-    const {db} = await connectToDatabase()
+    const { db } = await connectToDatabase()
     const usersCollection = db.collection("users")
 
-    const user = await usersCollection.findOne({ email })
+    const user = await usersCollection.findOne({ "formData.email": email })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }

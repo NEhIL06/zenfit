@@ -68,7 +68,7 @@ ${query}
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, images, conversationId, userId } = await req.json();
+    const { message, images, conversationId, userId, chatHistory } = await req.json();
 
     if (!message || typeof message !== "string") {
       return NextResponse.json(
@@ -115,7 +115,9 @@ Give a short, warm, conversational response.`
     // ---------------------------------------------------------
     // 3️⃣ FITNESS MODE → RUN SELF-RAG PIPELINE
     // ---------------------------------------------------------
-    const ragResult = await runSelfRAG(message, userId, images);
+
+    
+    const ragResult = await runSelfRAG(message, userId, images, chatHistory);
 
     console.log("[Chat API] RAG Completed");
 

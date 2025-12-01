@@ -80,19 +80,33 @@ export default function SignupForm({ onComplete }: SignupFormProps) {
     try {
       setLoading(true)
       setError("")
-      await fetch('/api/users',{
+
+      // Step 1: Create user in MongoDB and get the userId
+      const response = await fetch('/api/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({formData}),
+        body: JSON.stringify({ formData }),
       })
-      
-      // Generate fitness plan
-      const plan = await generateFitnessPlan(formData)
 
-      const userId = saveUserToLocalStorage({
+      if (!response.ok) {
+        throw new Error('Failed to create user')
+      }
+
+      const data = await response.json();
+      const userId = data.id.toString(); // Convert ObjectId to string
+
+      // Step 2: Generate fitness plan with the userId
+      const plan = await generateFitnessPlan({
         ...formData,
+        userId: userId  // Pass userId to plan generation
+      })
+
+      // Step 3: Save to localStorage with the same userId
+      saveUserToLocalStorage({
+        ...formData,
+        id: userId,
         plan,
         createdAt: new Date().toISOString(),
       })
@@ -115,19 +129,17 @@ export default function SignupForm({ onComplete }: SignupFormProps) {
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all ${
-                s <= step
+              className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all ${s <= step
                   ? "bg-[#2D5C44] dark:bg-[#10B981] text-white"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-              }`}
+                }`}
             >
               {s}
             </motion.div>
             {s < 3 && (
               <div
-                className={`h-1 w-12 md:w-24 transition-all ${
-                  s < step ? "bg-[#2D5C44] dark:bg-[#10B981]" : "bg-gray-200 dark:bg-gray-700"
-                }`}
+                className={`h-1 w-12 md:w-24 transition-all ${s < step ? "bg-[#2D5C44] dark:bg-[#10B981]" : "bg-gray-200 dark:bg-gray-700"
+                  }`}
               />
             )}
           </div>

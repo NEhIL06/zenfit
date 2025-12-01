@@ -26,7 +26,7 @@ interface Milestone {
 
 export function saveUserToLocalStorage(userData: any): string {
   const users = getAllUsers()
-  const userId = `user_${Date.now()}`
+  const userId = userData.id;
   const user: User = {
     id: userId,
     ...userData,

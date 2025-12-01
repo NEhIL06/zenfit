@@ -1,11 +1,12 @@
+import { NextResponse } from "next/server";
 
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 export async function POST(request: Request) {
-    try {
-        const { prompt, maxTokens } = await request.json();
-        const response = await fetch(
+  try {
+    const { prompt, maxTokens } = await request.json();
+
+    const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
       {
         method: "POST",
@@ -16,23 +17,23 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           contents: [
             {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
+              parts: [{ text: prompt }],
             },
           ],
+          generationConfig: {
+            maxOutputTokens: maxTokens || 512,
+          },
         }),
-      },
-    )
+      }
+    );
 
-
-        const result = await response.json()
-        const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
-        return text?.trim() || "";
-    } catch (err) {
-        console.error("[Gemini] generateText error:", err);
-        return "";
-    }
-}   
+    const data = await response.json();
+    const text =
+      data.response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
+      "";
+    return NextResponse.json({ text });
+  } catch (err) {
+    console.error("[API /generateText] Error:", err);
+    return NextResponse.json({ text: "" }, { status: 500 });
+  }
+}

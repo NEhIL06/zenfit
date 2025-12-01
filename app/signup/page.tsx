@@ -7,6 +7,7 @@ export default function SignupPage() {
   const router = useRouter()
 
   const handleSignupComplete = (userId: string) => {
+    
     router.push("/dashboard")
   }
 

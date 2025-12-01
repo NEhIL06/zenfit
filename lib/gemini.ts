@@ -8,6 +8,15 @@ interface GeminiResponse {
   }>
 }
 
+import { GoogleGenAI } from "@google/genai";
+
+
+const apiKey = process.env.GEMINI_API_KEY;
+
+// const genAI = new GoogleGenAI({
+//   apiKey:apiKey
+// });
+
 const MODEL = "sentence-transformers/all-MiniLM-L6-v2";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -44,12 +53,11 @@ export async function generateText(prompt: string, maxTokens = 512): Promise<str
   try {
     const res = await fetch("/api/generateText", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, maxTokens }),
-    })
-    const data = await res.json()
+    });
+
+    const data = await res.json();
     return data.text || "";
   } catch (err) {
     console.error("[Gemini] generateText error:", err);
@@ -59,10 +67,22 @@ export async function generateText(prompt: string, maxTokens = 512): Promise<str
 
 export async function generateTextServer(prompt: string, maxTokens = 512): Promise<string> {
   try {
-    const data = "text";
-    return data || "";
+    const genAI = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY!
+    });
+
+    const res = await genAI.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        maxOutputTokens: maxTokens,
+      }
+    });
+
+    const text = res.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return text || "";
   } catch (err) {
-    console.error("[Gemini] generateText error:", err);
+    console.error("[Gemini] generateTextServer error:", err);
     return "";
   }
 }
@@ -133,6 +153,7 @@ export async function embedText(text: string): Promise<number[]> {
         body: JSON.stringify(text),
       }
     );
+    console.log("[Embedding Response :",res)
 
     if (!res.ok) {
       throw new Error(`HF Error ${res.status}`);
@@ -150,7 +171,7 @@ export async function embedText(text: string): Promise<number[]> {
 
 
 
-export async function generatePersonalizedQuote(userData: any): Promise<string> {
+export async function   generatePersonalizedQuote(userData: any): Promise<string> {
   try {
     const response = await fetch("/api/personalized-quote", {
       method: "POST",

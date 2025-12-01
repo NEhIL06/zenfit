@@ -18,7 +18,7 @@ const HF_API_KEY = process.env.HF_API_KEY!;
 async function embedTextHF(text: string): Promise<number[]> {
   try {
     const response = await fetch(
-      "https://router.huggingface.co/hf-inference/feature-extraction",
+      "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
       {
         method: "POST",
         headers: {
@@ -26,7 +26,6 @@ async function embedTextHF(text: string): Promise<number[]> {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: HF_MODEL,
           inputs: text,
         }),
       }
@@ -39,7 +38,15 @@ async function embedTextHF(text: string): Promise<number[]> {
     }
 
     const json = JSON.parse(raw);
-    return json[0] ?? json;
+
+    // HuggingFace returns embeddings as either:
+    // - [[0.1, 0.2, ...]] (single text) or
+    // - [[[0.1, 0.2, ...]], [[0.3, 0.4, ...]]] (batch)
+    // We want the first embedding array
+    const embedding = Array.isArray(json[0]) ? json[0] : json;
+
+    console.log(`[HF Embeddings] Got embedding of length: ${embedding.length}`);
+    return embedding;
   } catch (err) {
     console.error("[HF Embeddings] embedText error:", err);
     return [];
@@ -126,11 +133,12 @@ export class FitnessVectorStore {
 
   async similaritySearch(query: string, k: number, collectionName: string) {
     const embedding = await embedTextHF(query);
+    console.log("[VectorStore] Embedding for query:", embedding);
 
-    if (!embedding.length) {
-      console.warn("[VectorStore] Empty embedding returned for query:", query);
-      return [];
-    }
+    // if (!embedding.length) {
+    //   console.warn("[VectorStore] Empty embedding returned for query:", query);
+    //   return [];
+    // }
 
     await this.ensureCollection(collectionName);
 
