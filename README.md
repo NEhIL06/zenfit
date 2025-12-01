@@ -1,280 +1,980 @@
-# Zenletics AI Trainer
+# ZenFit - AI-Powered Personal Fitness & Nutrition Platform
 
-![Zenletics Banner](https://placehold.co/1200x300/1a1a1a/ffffff?text=Zenletics+AI+Trainer)
+[![Next.js](https://img.shields.io/badge/Next.js-16.0.0-black)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **Your Personal AI-Powered Fitness Coach.**  
-> Intelligent workout planning, real-time form analysis, and science-backed nutrition advice—all powered by advanced RAG and Multimodal AI.
-
----
-
-## � Table of Contents
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [System Architecture (HLD)](#-system-architecture-hld)
-- [Low-Level Design (LLD)](#-low-level-design-lld)
-- [Data Flow](#-data-flow)
-- [Tech Stack](#-tech-stack)
-- [Getting Started](#-getting-started)
-- [API Reference](#-api-reference)
+> An intelligent fitness platform featuring AI-powered personalized training plans, multimodal interactions (voice, image, text), and a Self-RAG (Retrieval Augmented Generation) chatbot for comprehensive fitness guidance.
 
 ---
 
-## �🚀 Overview
+## 📋 Table of Contents
 
-Zenletics is a cutting-edge fitness application that leverages the power of Generative AI to provide personalized health and wellness guidance. Unlike standard fitness apps, Zenletics uses a **Self-Reflective Retrieval Augmented Generation (Self-RAG)** engine to ensure advice is accurate, context-aware, and scientifically grounded.
-
-It combines **Google Gemini 2.5 Flash** for high-speed reasoning and vision capabilities with **ChromaDB** for vector storage, creating a system that "thinks" before it answers.
+- [Overview](#overview)
+- [System Architecture](#system-architecture)
+- [High-Level Design (HLD)](#high-level-design-hld)
+- [Low-Level Design (LLD)](#low-level-design-lld)
+- [Core Features](#core-features)
+- [Technology Stack](#technology-stack)
+- [RAG Pipeline Architecture](#rag-pipeline-architecture)
+- [AI Models & Services](#ai-models--services)
+- [API Documentation](#api-documentation)
+- [Setup & Installation](#setup--installation)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
+- [Data Flow Diagrams](#data-flow-diagrams)
+- [Security & Best Practices](#security--best-practices)
 
 ---
 
-## ✨ Key Features
+## 🔍 Overview
 
--   **🧠 Self-Correcting AI Coach**: Uses a LangGraph-based Self-RAG workflow to retrieve, grade, and verify information before responding.
--   **👁️ Multimodal Form Analysis**: Upload photos of your workout form, and the AI (powered by Gemini Vision) will analyze your posture and suggest corrections.
--   **🏋️ Personalized Plans**: Generates custom workout and nutrition plans based on your unique goals, biometrics, and equipment availability.
--   **⚡ Real-Time Streaming**: Experience zero-latency conversations with streaming responses.
--   **🔍 Smart Web Search Fallback**: If the internal knowledge base is insufficient, the system autonomously performs a privacy-focused web search (DuckDuckGo) to find the latest information.
+ZenFit is a next-generation fitness platform that leverages cutting-edge AI technologies to provide personalized fitness and nutrition guidance. The platform combines:
+
+- **Self-RAG Chatbot**: Intelligent conversational AI with retrieval-augmented generation
+- **Multimodal Interactions**: Support for text, voice (speech-to-text), and image analysis
+- **Vector Search**: ChromaDB-powered semantic search for fitness knowledge retrieval
+- **Personalized Plans**: AI-generated workout and meal plans based on user profiles
+- **Real-time Progress Tracking**: Milestone tracking and analytics
+- **Multilingual Support**: Responds in the user's query language
 
 ---
 
-## 🏗️ System Architecture (HLD)
-
-The system follows a modern **Serverless Microservices** architecture pattern, leveraging Next.js API routes as the primary controller layer.
-
-### High-Level Components
-
-1.  **Client Layer**: A responsive React application (Next.js) handling UI/UX, state management, and real-time updates.
-2.  **Service Layer**: Next.js API Routes acting as the orchestration layer, managing authentication, request validation, and routing to AI services.
-3.  **Intelligence Layer**: The core brain of the application, consisting of LangGraph agents and Gemini LLMs.
-4.  **Data Layer**: 
-    -   **ChromaDB**: Stores vector embeddings of fitness knowledge and user history.
-    -   **HuggingFace**: Provides inference for text embeddings.
-    -   **DuckDuckGo**: External knowledge source for fallback retrieval.
-
-### Architecture Diagram
+## 🏗️ System Architecture
 
 ```mermaid
-graph TD
-    User[User Client] -->|HTTPS/JSON| NextApp[Next.js App Router]
-    
-    subgraph "Service Layer"
-        NextApp -->|API Route| ChatAPI[Chat Endpoint]
-        ChatAPI -->|Auth Check| Auth[Authentication]
+graph TB
+    subgraph Client["Client Layer (Next.js 16 + React 19)"]
+        UI[UI Components]
+        Voice[Voice Input]
+        Image[Image Upload]
+        Chat[Chat Interface]
     end
-    
-    subgraph "Intelligence Layer"
-        ChatAPI -->|Orchestrate| SelfRAG[LangGraph Workflow]
-        SelfRAG -->|Generate/Vision| Gemini[Gemini 2.5 Flash]
-        SelfRAG -->|Fallback Search| DDG[DuckDuckGo]
+
+    subgraph API["API Layer (Next.js API Routes)"]
+        ChatAPI[/api/ai-trainer/chat]
+        PlanAPI[/api/generate-plan]
+        ImageAPI[/api/generate-image]
+        TranscribeAPI[/api/transcribe]
+        VoiceAPI[/api/generate-voice]
     end
-    
-    subgraph "Data Layer"
-        SelfRAG -->|Vector Search| Chroma[ChromaDB]
-        Chroma <-->|Embeddings| HF[HuggingFace Inference]
+
+    subgraph AILayer["AI Processing Layer"]
+        SelfRAG[Self-RAG Workflow]
+        Classifier[Query Classifier]
+        IntentDetector[Intent Detector]
+        Multimodal[Multimodal Processor]
     end
+
+    subgraph Models["AI Models & Services"]
+        Gemini[Google Gemini 2.5 Flash]
+        HF[HuggingFace Embeddings BGE-base-en-v1.5]
+        DDG[DuckDuckGo Search]
+        Nanobanana[Nanobanana Image Gen]
+    end
+
+    subgraph DataLayer["Data Layer"]
+        Chroma[ChromaDB Vector Store]
+        MongoDB[MongoDB User Data]
+        LocalStorage[Browser LocalStorage]
+    end
+
+    UI --> ChatAPI
+    Voice --> TranscribeAPI
+    Image --> ChatAPI
+    Chat --> ChatAPI
+
+    ChatAPI --> Classifier
+    Classifier --> SelfRAG
+    SelfRAG --> Multimodal
     
-    style User fill:#f9f,stroke:#333
-    style NextApp fill:#bbf,stroke:#333
-    style SelfRAG fill:#bfb,stroke:#333
-    style Chroma fill:#ff9,stroke:#333
+    TranscribeAPI --> Gemini
+    ImageAPI --> Nanobanana
+    
+    SelfRAG --> Chroma
+    SelfRAG --> MongoDB
+    SelfRAG --> DDG
+    Multimodal --> Gemini
+    
+    Chroma --> HF
+    PlanAPI --> Gemini
+    VoiceAPI --> Gemini
+
+    style Client fill:#e1f5ff
+    style API fill:#fff4e6
+    style AILayer fill:#f3e5f5
+    style Models fill:#e8f5e9
+    style DataLayer fill:#fce4ec
 ```
 
 ---
 
-## � Low-Level Design (LLD)
+## 📐 High-Level Design (HLD)
 
-### Core Modules
+### System Components
 
-#### 1. Self-RAG Engine (`lib/ai-trainer/self-rag.ts`)
-The central nervous system of the AI trainer. It implements a state machine using `LangGraph`.
+#### 1. **Frontend Layer**
+- **Framework**: Next.js 16 with React 19 and TypeScript
+- **UI Library**: Radix UI components with TailwindCSS
+- **State Management**: React hooks with localStorage persistence
+- **Real-time Updates**: Client-side chat history management
 
-*   **State**: Tracks `question`, `documents`, `generation`, `retryCount`, and `isFitnessQuery`.
-*   **Nodes**:
-    *   `retrieve`: Fetches docs from VectorStore.
-    *   `grade`: Evaluates doc relevance using Gemini.
-    *   `webSearch`: Fallback to DDG if docs are poor.
-    *   `generate`: Synthesizes final answer.
+#### 2. **API Gateway Layer**
+- **Next.js API Routes**: RESTful endpoints
+- **Authentication**: User ID-based sessions
+- **Request Validation**: Zod schema validation
+- **Error Handling**: Centralized error responses
 
-#### 2. Vector Store (`lib/ai-trainer/vector-store.ts`)
-Manages interactions with ChromaDB.
+#### 3. **AI Processing Layer**
 
-*   **Pattern**: Singleton.
-*   **Collections**:
-    *   `fitness_global_knowledge`: Shared verified fitness data.
-    *   `fitness_user_{userId}`: Personalized user data.
-*   **Embedding**: Uses `sentence-transformers/all-MiniLM-L6-v2` via HuggingFace Inference API.
-
-#### 3. Multimodal Processor (`lib/ai-trainer/multimodal.ts`)
-Handles image inputs for form correction.
-
-*   **Input**: Base64 image strings.
-*   **Process**: Sends to Gemini Vision model with specific "Form Analysis" system prompts.
-*   **Output**: Textual critique and correction suggestions.
-
-### Class Diagram
-
+##### Self-RAG Workflow (LangGraph)
 ```mermaid
-classDiagram
-    class SelfRAG {
-        +StateGraph workflow
-        +run(question, userId, images)
-        -classifyQuery(question)
-        -retrieve(state)
-        -gradeDocuments(state)
-        -generate(state)
-    }
+graph LR
+    START([User Query]) --> Classify[Query Classification]
+    Classify --> |Fitness| Retrieve[Vector Retrieval]
+    Classify --> |General| DirectResponse[Direct LLM Response]
     
-    class FitnessVectorStore {
-        +addDocuments(docs, collection)
-        +searchForUser(query, userId)
-        -embedTextHF(text)
-    }
-    
-    class GeminiHelper {
-        +generateText(prompt)
-        +analyzeImage(base64)
-    }
-    
-    SelfRAG --> FitnessVectorStore : uses
-    SelfRAG --> GeminiHelper : uses
-    FitnessVectorStore ..> ChromaDB : connects
-```
-
----
-
-## 🔄 Data Flow
-
-The following sequence describes the lifecycle of a user request, from input to response.
-
-### Request Lifecycle
-
-1.  **User Input**: User sends a text message (and optionally an image) via the Chat UI.
-2.  **API Handling**: `POST /api/ai-trainer/chat` receives the payload.
-3.  **Classification**: The system first classifies the intent:
-    *   *General*: "Hi", "How are you?" -> Direct LLM response.
-    *   *Fitness*: "How to do a deadlift?", "Fix my form" -> Enters RAG Pipeline.
-4.  **RAG Execution**:
-    *   **Retrieve**: System converts query to vector -> Searches ChromaDB.
-    *   **Grade**: LLM checks if retrieved docs match the query.
-    *   **Decide**: If docs are good -> Generate. If bad -> Web Search.
-5.  **Generation**: LLM generates a response using the retrieved context and specific fitness persona instructions.
-6.  **Response**: JSON payload returned to client (or streamed).
-
-### RAG Pipeline Flowchart
-
-```mermaid
-graph TD
-    Start([Start]) --> Classify{Classify Query}
-    
-    Classify -- "General Chat" --> GenerateGeneral[Generate General Response]
-    Classify -- "Fitness Query" --> Retrieve[Retrieve Documents]
-    
-    Retrieve --> Grade[Grade Documents]
-    
-    Grade -- "Relevant Docs Found" --> Generate[Generate Answer]
-    Grade -- "No Relevant Docs" --> WebSearch[Web Search]
-    
+    Retrieve --> Grade[Document Grading]
+    Grade --> |Relevant| Generate[Generate Response]
+    Grade --> |Not Relevant| WebSearch[Web Search Fallback]
     WebSearch --> Generate
     
-    GenerateGeneral --> End([End])
-    Generate --> End
-    
-    style Start fill:#f9f,stroke:#333,stroke-width:2px
-    style End fill:#f9f,stroke:#333,stroke-width:2px
-    style Classify fill:#bbf,stroke:#333,stroke-width:2px
-    style Generate fill:#bfb,stroke:#333,stroke-width:2px
+    Generate --> Multilingual[Language Detection]
+    Multilingual --> END([Response])
+    DirectResponse --> END
+
+    style Classify fill:#ffeb3b
+    style Retrieve fill:#4caf50
+    style Grade fill:#ff9800
+    style Generate fill:#2196f3
+    style WebSearch fill:#9c27b0
+```
+
+#### 4. **Data Persistence Layer**
+- **Vector Database**: ChromaDB for semantic search
+- **Document Database**: MongoDB for user profiles & fitness plans
+- **Caching**: Browser localStorage for chat history & user sessions
+
+---
+
+## 🔬 Low-Level Design (LLD)
+
+### Self-RAG Pipeline Implementation
+
+```typescript
+interface SelfRAGState {
+  question: string          // User's input query
+  generation: string        // Generated response
+  documents: string[]       // Retrieved context documents
+  webSearch: boolean        // Fallback trigger flag
+  retryCount: number        // Web search retry counter
+}
+
+class SelfRAGWorkflow {
+  // Node 1: Retrieve from vector database
+  async retrieve(state: SelfRAGState, userId?: string): Promise<Partial<SelfRAGState>>
+  
+  // Node 2: Grade document relevance
+  async gradeDocuments(state: SelfRAGState): Promise<Partial<SelfRAGState>>
+  
+  // Node 3: Fallback web search
+  async webSearch(state: SelfRAGState): Promise<Partial<SelfRAGState>>
+  
+  // Node 4: Generate final response
+  async generate(state: SelfRAGState, userId?: string, chatHistory?: ChatMessage[]): Promise<Partial<SelfRAGState>>
+}
+```
+
+### Vector Store Architecture
+
+```typescript
+class FitnessVectorStore {
+  // Collections
+  - fitness_global_knowledge    // Shared fitness knowledge base
+  - fitness_user_{userId}        // User-specific documents
+  
+  // Operations
+  + addGlobalDocuments(docs: Document[]): Promise<string[]>
+  + addUserDocuments(userId: string, docs: Document[]): Promise<string[]>
+  + searchForUser(query: string, userId?: string, k: number): Promise<Document[]>
+  
+  // Processing
+  - Text Splitter: RecursiveCharacterTextSplitter (chunk_size=800, overlap=150)
+  - Embeddings: HuggingFace BGE-base-en-v1.5 (768 dimensions)
+}
+```
+
+### Multimodal Processor
+
+```typescript
+class MultimodalProcessor {
+  // Image Analysis
+  + analyzeExerciseForm(imageBase64: string): Promise<string>
+  + describeImage(imageBase64: string): Promise<string>
+  
+  // Image Generation
+  + generateExerciseImage(exerciseName: string, instructions?: string): Promise<string>
+  
+  // Audio Transcription
+  + transcribeAudio(audioBase64: string, mimeType: string): Promise<string>
+  
+  // Intent Detection
+  + shouldGenerateImage(query: string): boolean
+  + extractExerciseName(query: string): string
+}
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## ✨ Core Features
+
+### 1. **AI-Powered Chat Interface**
+- **Self-RAG Architecture**: Retrieval-Augmented Generation with grading
+- **Context-Aware Responses**: Considers user profile, fitness plans, and chat history
+- **Multilingual Support**: Auto-detects and responds in user's language
+- **Source Attribution**: Shows relevant documents used in response generation
+
+### 2. **Multimodal Interactions**
+
+#### Voice Input
+- **Speech-to-Text**: Gemini-powered audio transcription
+- **Language Detection**: Automatic language identification
+- **Seamless Integration**: Transcribed text populates chat input
+
+#### Image Processing
+- **Form Analysis**: AI-powered exercise form evaluation
+- **Image Generation**: Nanobanana-powered exercise/meal visualization
+- **Intent Detection**: Automatic image request classification
+
+### 3. **Personalized Fitness Planning**
+- **AI-Generated Plans**: Customized workout and nutrition plans
+- **User Profiling**: Age, gender, goals, fitness level, dietary preferences
+- **Plan Storage**: MongoDB persistence with vector indexing
+- **Progress Tracking**: Milestone creation and sharing
+
+### 4. **Knowledge Management**
+- **Dual Vector Collections**: Global knowledge + per-user personalization
+- **Semantic Search**: Embedding-based similarity matching
+- **Web Search Fallback**: DuckDuckGo integration for missing knowledge
+- **Document Grading**: LLM-powered relevance scoring
+
+---
+
+## 🛠️ Technology Stack
 
 ### Frontend
--   **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Turbopack)
--   **Styling**: [TailwindCSS](https://tailwindcss.com/) v4 & [Shadcn/UI](https://ui.shadcn.com/)
--   **State Management**: React Hooks & Server Actions
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Next.js | 16.0.0 | React framework with SSR |
+| React | 19.2.0 | UI library |
+| TypeScript | 5.x | Type safety |
+| TailwindCSS | 4.1.9 | Styling |
+| Radix UI | Various | Accessible components |
+| Framer Motion | 12.23.24 | Animations |
 
 ### Backend & AI
--   **LLM**: Google Gemini 2.5 Flash
--   **Orchestration**: [LangGraph](https://langchain-ai.github.io/langgraph/) (Stateful Agents)
--   **Vector Database**: [ChromaDB](https://www.trychroma.com/) (Cloud Client)
--   **Embeddings**: HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
--   **Search**: DuckDuckGo Search API
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| LangChain | 0.3.36 | AI orchestration |
+| LangGraph | 0.2.74 | Workflow engine |
+| Google Gemini | 2.5 Flash | LLM for generation |
+| HuggingFace | BGE-base-en-v1.5 | Text embeddings |
+| ChromaDB | 3.1.6 | Vector database |
+| MongoDB | 6.20.0 | Document database |
+| Nanobanana | Latest | Image generation |
+| DuckDuckGo | 2.2.7 | Web search |
+
+### Development Tools
+- **Build**: Turbopack (Next.js 16)
+- **Linting**: ESLint
+- **Package Manager**: npm
+- **Deployment**: Vercel-ready
 
 ---
 
-## 🚀 Getting Started
+## 🤖 RAG Pipeline Architecture
 
-### Prerequisites
--   Node.js 18+
--   npm or pnpm
--   Google Gemini API Key
--   ChromaDB Cloud Credentials
+### Complete Chat Flow
 
-### Installation
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend as AITrainerTab
+    participant API as /api/ai-trainer/chat
+    participant Classifier
+    participant RAG as Self-RAG Workflow
+    participant VectorDB as ChromaDB
+    participant MongoDB
+    participant Gemini as Google Gemini
+    participant WebSearch as DuckDuckGo
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/yourusername/zenletics.git
-    cd zenletics
-    ```
-
-2.  **Install dependencies**
-    ```bash
-    npm install
-    ```
-
-3.  **Set up Environment Variables**
-    Create a `.env` file in the root directory:
-    ```env
-    # AI Keys
-    GEMINI_API_KEY=your_gemini_key
-    HF_API_KEY=your_huggingface_key
+    User->>Frontend: Send message (text/voice/image)
+    Frontend->>API: POST /api/ai-trainer/chat {message, userId, chatHistory, images}
     
-    # Database
-    CHROMA_API_KEY=your_chroma_key
-    CHROMA_TENANT_ID=your_tenant_id
-    CHROMA_DATABASE=your_database_name
-    ```
+    API->>Classifier: Classify query (fitness vs general)
+    Classifier->>Gemini: Analyze query intent
+    Gemini-->>Classifier: Classification result
+    
+    alt General Query
+        Classifier->>Gemini: Generate casual response
+        Gemini-->>API: Conversational reply
+        API-->>Frontend: {response, sources: []}
+    else Fitness Query
+        Classifier->>RAG: Execute Self-RAG workflow
+        
+        RAG->>VectorDB: Retrieve documents (k=6)
+        VectorDB->>VectorDB: Embed query (HF BGE)
+        VectorDB->>VectorDB: Search global + user collections
+        VectorDB-->>RAG: Return relevant chunks
+        
+        RAG->>Gemini: Grade document relevance
+        Gemini-->>RAG: Relevance scores
+        
+        alt Documents Relevant
+            RAG->>MongoDB: Fetch user profile & plan
+            MongoDB-->>RAG: User context
+            RAG->>Gemini: Generate response with context
+        else No Relevant Docs
+            RAG->>WebSearch: Search for knowledge
+            WebSearch-->>RAG: Web results
+            RAG->>MongoDB: Fetch user profile & plan
+            MongoDB-->>RAG: User context
+            RAG->>Gemini: Generate response with web context
+        end
+        
+        Gemini-->>RAG: Generated response
+        RAG-->>API: {generation, sources, conversationId}
+        API-->>Frontend: {response, sources, generatedImages}
+    end
+    
+    Frontend-->>User: Display response
+```
 
-4.  **Run the Development Server**
-    ```bash
-    npm run dev
-    ```
-    Open [http://localhost:3000](http://localhost:3000) to see the app.
+### Retrieval Workflow Details
+
+#### Step 1: Query Embedding
+- **Model**: `BAAI/bge-base-en-v1.5` via HuggingFace
+- **Dimensions**: 768
+- **Endpoint**: `https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction`
+
+#### Step 2: Vector Search
+- **Database**: ChromaDB (HTTP client mode)
+- **Collections**:
+  - `fitness_global_knowledge`: Shared knowledge base
+  - `fitness_user_{userId}`: User-specific training data
+- **Top-K**: 6 documents
+- **Similarity**: Cosine distance
+
+#### Step 3: Document Grading
+- **Grader**: Google Gemini 2.5 Flash
+- **Prompt**: Binary relevance classification (yes/no)
+- **Threshold**: Explicit "yes" match
+- **Fallback**: Web search if all documents irrelevant
+
+#### Step 4: Response Generation
+- **Context Assembly**:
+  - User profile (age, gender, goals, fitness level)
+  - Current fitness plan summary
+  - Retrieved documents (up to 6)
+  - Chat history (last 10 messages)
+  - Web search results (if applicable)
+- **Prompt Engineering**:
+  - Role: Expert AI fitness trainer
+  - Instructions: Personalized, actionable, encouraging
+  - Language Detection: **MUST** respond in user's language
+  - Length: 200-300 words
 
 ---
 
-## 📡 API Reference
+## 🧠 AI Models & Services
+
+### 1. Google Gemini 2.5 Flash
+
+**Use Cases**:
+- Query classification (fitness vs general)
+- Document relevance grading
+- Final response generation
+- Audio transcription
+- Exercise form analysis
+
+**Configuration**:
+```typescript
+const genAI = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY!
+})
+
+const response = await genAI.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: [{ parts: [{ text: prompt }] }],
+  config: {
+    maxOutputTokens: 1024,
+    systemInstruction: "You are an expert in fitness and nutrition"
+  }
+})
+```
+
+### 2. HuggingFace BGE-base-en-v1.5
+
+**Purpose**: Text embedding for semantic search
+
+**Specifications**:
+- **Model**: `BAAI/bge-base-en-v1.5`
+- **Dimensions**: 768
+- **Max Tokens**: 512
+- **Performance**: ~1.5s per embedding
+
+**API Call**:
+```typescript
+const response = await fetch(
+  "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${HF_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ inputs: text })
+  }
+)
+```
+
+### 3. Nanobanana Image Generation
+
+**Purpose**: Generate exercise and meal images
+
+**Configuration**:
+```typescript
+const response = await fetch('https://api.nanobanana.ai/v1/images/generations', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${NANOBANANA_API_KEY}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    prompt: `Professional fitness illustration of ${exerciseName}...`,
+    width: 1024,
+    height: 1024,
+    num_inference_steps: 30,
+    guidance_scale: 7.5
+  })
+})
+```
+
+### 4. DuckDuckGo Search API
+
+**Purpose**: Web search fallback when vector DB has no relevant docs
+
+**Implementation**:
+```typescript
+import { search } from 'duck-duck-scrape'
+
+const results = await search(query, {
+  safeSearch: SearchSafeMode.STRICT,
+  count: 3
+})
+```
+
+---
+
+## 📡 API Documentation
 
 ### Chat Endpoint
 
-**URL**: `/api/ai-trainer/chat`  
-**Method**: `POST`
+#### `POST /api/ai-trainer/chat`
 
-**Request Body**
-```json
+**Description**: Main chatbot endpoint with Self-RAG pipeline
+
+**Request Body**:
+```typescript
 {
-  "message": "How do I improve my bench press?",
-  "userId": "user_123",
-  "images": ["base64_string_optional"],
-  "conversationId": "conv_abc"
+  message: string              // User's query
+  userId: string               // User identifier
+  images?: string[]            // Base64 encoded images (optional)
+  chatHistory?: Array<{        // Recent conversation (optional)
+    role: 'user' | 'assistant'
+    content: string
+  }>
+  conversationId?: string      // Session identifier (optional)
 }
 ```
 
-**Response**
-```json
+**Response**:
+```typescript
 {
-  "response": "To improve your bench press, focus on...",
-  "sources": [
-    { "content": "...", "score": 0.89 }
-  ],
-  "conversationId": "conv_abc"
+  response: string             // Generated answer
+  sources: Array<{             // Retrieved context documents
+    content: string
+    score: number
+    metadata: object
+  }>
+  generatedImages: string[]    // URLs to generated images
+  conversationId: string       // Session identifier
 }
 ```
+
+**Example**:
+```bash
+curl -X POST http://localhost:3000/api/ai-trainer/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the best exercises for building chest muscles?",
+    "userId": "user_123",
+    "chatHistory": []
+  }'
+```
+
+---
+
+### Audio Transcription Endpoint
+
+#### `POST /api/transcribe`
+
+**Description**: Convert audio to text using Gemini
+
+**Request**: `multipart/form-data`
+- `file`: Audio file (webm, mp3, wav)
+
+**Response**:
+```typescript
+{
+  text: string  // Transcribed text
+}
+```
+
+**Example**:
+```javascript
+const formData = new FormData()
+formData.append('file', audioBlob, 'recording.webm')
+
+const response = await fetch('/api/transcribe', {
+  method: 'POST',
+  body: formData
+})
+```
+
+---
+
+### Image Generation Endpoint
+
+#### `POST /api/generate-image`
+
+**Description**: Generate exercise or meal images using Nanobanana
+
+**Request Body**:
+```typescript
+{
+  name: string                 // Exercise/meal name
+  type: 'exercise' | 'meal'    // Image type
+}
+```
+
+**Response**:
+```typescript
+{
+  imageData: string  // Base64 encoded image or URL
+}
+```
+
+---
+
+### Fitness Plan Generation
+
+#### `POST /api/generate-plan`
+
+**Description**: Generate personalized fitness and nutrition plan
+
+**Request Body**:
+```typescript
+{
+  name: string
+  age: number
+  gender: string
+  height: number
+  weight: number
+  fitnessGoal: string
+  fitnessLevel: string
+  workoutLocation: string
+  dietaryPreference: string
+  medicalHistory?: string
+  stressLevel?: string
+}
+```
+
+**Response**:
+```typescript
+{
+  summary: string
+  weeklySchedule: Array<{
+    day: string
+    workout: string
+    meals: string[]
+  }>
+  nutritionGuidelines: string
+  tips: string[]
+}
+```
+
+---
+
+### Other Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/generate-quote` | GET | Generate motivational quote |
+| `/api/personalized-quote` | POST | User-specific motivational quote |
+| `/api/generate-voice` | POST | Text-to-speech conversion |
+| `/api/milestones` | GET/POST | Fetch/create user milestones |
+| `/api/users/[id]` | GET/PUT | User profile management |
+
+---
+
+## 🚀 Setup & Installation
+
+### Prerequisites
+
+- **Node.js**: v18.0.0 or higher
+- **npm**: v9.0.0 or higher
+- **MongoDB**: v6.0 or higher (cloud or local)
+- **ChromaDB**: HTTP server running on port 8000
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/your-username/zenfit.git
+cd zenfit
+```
+
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Setup ChromaDB (Local)
+
+```bash
+# Option 1: Docker
+docker pull chromadb/chroma
+docker run -p 8000:8000 chromadb/chroma
+
+# Option 2: pip
+pip install chromadb
+chroma run --host localhost --port 8000
+```
+
+### 4. Configure Environment Variables
+
+Create `.env` file in root directory:
+
+```env
+# See Environment Variables section below
+```
+
+### 5. Run Development Server
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+### 6. Build for Production
+
+```bash
+npm run build
+npm start
+```
+
+---
+
+## 🔐 Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# Google Gemini API
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# HuggingFace API
+HF_API_KEY=your_huggingface_api_key_here
+
+# Nanobanana API (Image Generation)
+NANOBANANA_API_KEY=your_nanobanana_api_key_here
+
+# ChromaDB Configuration
+CHROMA_HTTP_HOST=localhost
+CHROMA_HTTP_PORT=8000
+
+# MongoDB Connection
+MONGODB_URI=mongodb://localhost:27017/zenfit
+# OR for MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/zenfit
+
+# Next.js Configuration
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+### API Key Setup Instructions
+
+1. **Google Gemini**: [Get API Key](https://makersuite.google.com/app/apikey)
+2. **HuggingFace**: [Create Token](https://huggingface.co/settings/tokens)
+3. **Nanobanana**: [Sign Up](https://nanobanana.ai)
+4. **MongoDB Atlas**: [Create Cluster](https://www.mongodb.com/cloud/atlas)
+
+---
+
+## 📂 Project Structure
+
+```
+zenfit/
+├── app/                              # Next.js app directory
+│   ├── api/                          # API routes
+│   │   ├── ai-trainer/
+│   │   │   ├── chat/route.ts        # Main chat endpoint (Self-RAG)
+│   │   │   └── documents/route.ts   # Document management
+│   │   ├── transcribe/route.ts      # Audio transcription
+│   │   ├── generate-image/route.ts  # Image generation
+│   │   ├── generate-plan/route.ts   # Fitness plan generation
+│   │   ├── generate-voice/route.ts  # Text-to-speech
+│   │   └── milestones/route.ts      # Milestone CRUD
+│   ├── dashboard/page.tsx           # User dashboard
+│   ├── login/page.tsx               # Login page
+│   ├── signup/page.tsx              # Signup page
+│   └── page.tsx                     # Landing page
+├── components/                       # React components
+│   ├── ai-trainer-tab.tsx           # Main chat interface
+│   ├── plan-tab.tsx                 # Fitness plan display
+│   ├── milestones-tab.tsx           # Progress tracking
+│   ├── voice-player.tsx             # Audio playback
+│   └── ...                          # Other UI components
+├── lib/                              # Core libraries
+│   ├── ai-trainer/                  # AI trainer modules
+│   │   ├── self-rag.ts              # Self-RAG workflow (LangGraph)
+│   │   ├── vector-store.ts          # ChromaDB vector operations
+│   │   └── multimodal.ts            # Image & audio processing
+│   ├── gemini.ts                    # Gemini API wrapper
+│   ├── chroma.ts                    # ChromaDB client
+│   ├── mongodb.ts                   # MongoDB connection
+│   ├── ddg.ts                       # DuckDuckGo search
+│   └── storage.ts                   # LocalStorage utilities
+├── types/                            # TypeScript definitions
+│   └── ai-trainer.ts                # Type interfaces
+├── scripts/                          # Utility scripts
+│   └── fix-chroma.js                # Post-install fix
+├── public/                           # Static assets
+├── .env.example                     # Environment template
+├── package.json                     # Dependencies
+├── tsconfig.json                    # TypeScript config
+├── next.config.ts                   # Next.js config
+└── README.md                        # This file
+```
+
+---
+
+## 📊 Data Flow Diagrams
+
+### User Signup & Plan Generation
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SignupForm
+    participant API as /api/generate-plan
+    participant Gemini
+    participant MongoDB
+
+    User->>SignupForm: Fill profile details
+    SignupForm->>API: POST {age, gender, goals, ...}
+    API->>Gemini: Generate personalized plan
+    Gemini-->>API: {summary, schedule, nutrition}
+    API->>MongoDB: Save user + plan
+    MongoDB-->>API: Success
+    API-->>SignupForm: {userId, plan}
+    SignupForm-->>User: Redirect to /dashboard
+```
+
+### Voice Input Flow
+
+```mermaid
+graph LR
+    A[User clicks Mic] --> B[MediaRecorder starts]
+    B --> C[User speaks]
+    C --> D[User stops recording]
+    D --> E[Audio Blob created]
+    E --> F[POST /api/transcribe]
+    F --> G[Gemini processes audio]
+    G --> H[Return transcribed text]
+    H --> I[Populate input field]
+    I --> J[User sends message]
+
+    style A fill:#4caf50
+    style G fill:#2196f3
+    style H fill:#ff9800
+```
+
+### Image Generation Flow
+
+```mermaid
+graph TD
+    A[User query] --> B{Intent Detection}
+    B -->|Show/visualize keywords| C[Extract exercise/meal name]
+    B -->|Normal query| D[Text-only response]
+    
+    C --> E[POST /api/generate-image]
+    E --> F[Nanobanana API]
+    F --> G{Success?}
+    G -->|Yes| H[Return image URL]
+    G -->|No| I[Fallback text response]
+    
+    H --> J[Display image in chat]
+    I --> J
+    D --> J
+
+    style B fill:#ffeb3b
+    style F fill:#9c27b0
+    style J fill:#4caf50
+```
+
+---
+
+## 🔒 Security & Best Practices
+
+### Security Measures
+
+1. **API Key Management**
+   - All sensitive keys stored in `.env`
+   - Never committed to version control (`.gitignore`)
+   - Server-side API calls only (no client-side exposure)
+
+2. **Input Validation**
+   - Zod schemas for request validation
+   - SQL injection prevention (MongoDB parameterized queries)
+   - XSS protection (React's built-in escaping)
+
+3. **Authentication**
+   - User ID-based session management
+   - LocalStorage for client-side persistence
+   - Server-side validation on every request
+
+4. **Rate Limiting**
+   - Recommended: Implement per-user rate limits
+   - Use Vercel's built-in DDoS protection
+
+### Best Practices
+
+1. **Error Handling**
+   - Centralized error logging
+   - User-friendly error messages
+   - Fallback mechanisms (web search, default responses)
+
+2. **Performance Optimization**
+   - Text chunking for large documents (800 chars, 150 overlap)
+   - Lazy loading of vector collections
+   - Chat history truncation (last 10 messages)
+
+3. **Data Privacy**
+   - User-specific vector collections
+   - No cross-user data leakage
+   - Mongodb user collection isolation
+
+4. **Code Quality**
+   - TypeScript for type safety
+   - ESLint for code linting
+   - Modular architecture (separation of concerns)
+
+---
+
+## 🧪 Testing
+
+### Run Linter
+
+```bash
+npm run lint
+```
+
+### Manual Testing Checklist
+
+- [ ] User signup with fitness plan generation
+- [ ] Chat with text queries (fitness & general)
+- [ ] Voice input recording and transcription
+- [ ] Image upload for form analysis
+- [ ] Image generation request ("show me pushups")
+- [ ] Multilingual responses (Hindi, Spanish, etc.)
+- [ ] Chat history persistence
+- [ ] Milestone creation and display
+- [ ] Tab switching (Plan, Milestones, AI Trainer)
+
+---
+
+## 🚀 Deployment
+
+### Vercel Deployment
+
+1. **Connect Repository**
+   ```bash
+   vercel --prod
+   ```
+
+2. **Add Environment Variables**
+   - Go to Vercel Dashboard > Settings > Environment Variables
+   - Add all variables from `.env`
+
+3. **Deploy**
+   ```bash
+   git push origin main
+   ```
+
+### MongoDB Atlas Setup
+
+1. Create a free cluster at [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
+2. Whitelist Vercel IP ranges (or allow all IPs for testing)
+3. Copy connection string to `MONGODB_URI`
+
+### ChromaDB Cloud Setup
+
+For production, consider:
+- [Chroma Cloud](https://www.trychroma.com/) (managed service)
+- Self-hosted on AWS/GCP with persistent storage
+- Update `CHROMA_HTTP_HOST` and `CHROMA_HTTP_PORT` accordingly
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Google Gemini** for powerful LLM capabilities
+- **HuggingFace** for open-source embeddings
+- **ChromaDB** for vector database infrastructure
+- **LangChain/LangGraph** for AI orchestration
+- **Radix UI** for accessible components
+- **Vercel** for seamless deployment
+
+---
+
+## 📞 Contact & Support
+
+- **Developer**: Nehil Chandrakar
+- **Email**: nehil.contact@gmail.com
+- **GitHub**: [@NEhiL06](https://github.com/NEhiL06)
+- **Issues**: [GitHub Issues](https://github.com/NEhiL06/zenfit/issues)
+
+---
+
+**Built with ❤️ using Next.js, TypeScript, and cutting-edge AI technologies**

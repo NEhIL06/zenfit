@@ -153,7 +153,7 @@ export async function embedText(text: string): Promise<number[]> {
         body: JSON.stringify(text),
       }
     );
-    console.log("[Embedding Response :",res)
+    console.log("[Embedding Response :", res)
 
     if (!res.ok) {
       throw new Error(`HF Error ${res.status}`);
@@ -171,7 +171,7 @@ export async function embedText(text: string): Promise<number[]> {
 
 
 
-export async function   generatePersonalizedQuote(userData: any): Promise<string> {
+export async function generatePersonalizedQuote(userData: any): Promise<string> {
   try {
     const response = await fetch("/api/personalized-quote", {
       method: "POST",

@@ -102,7 +102,7 @@ async function webSearch(state: SelfRAGState): Promise<Partial<SelfRAGState>> {
 // ------------------------
 async function generate(state: SelfRAGState, userId?: string, chatHistory?: { role: string, content: string }[]): Promise<Partial<SelfRAGState>> {
 
-  console.log("[Self-RAG] Generating response") 
+  console.log("[Self-RAG] Generating response")
   const context = state.documents
     .map((d, i) => `Source #${i + 1}:\n${d}`)
     .join("\n\n----------------------\n\n")
@@ -177,6 +177,7 @@ INSTRUCTIONS:
 - Keep responses concise but thorough (aim for 200-300 words)
 - If you need more information about the user's specific situation, ask clarifying questions
 - If the user asks a follow-up question, refer to the previous conversation context
+- **LANGUAGE**: Detect the language of the user's question. You MUST answer in the SAME language as the user's question.
 
 Answer:
 `

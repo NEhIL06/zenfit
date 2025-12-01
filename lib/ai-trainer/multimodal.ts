@@ -12,8 +12,8 @@ export class MultimodalProcessor {
 
     constructor() {
         this.gemini = new ChatGoogleGenerativeAI({
-            modelName: 'gemini-1.5-pro-latest',
-            apiKey: process.env.GOOGLE_API_KEY!,
+            modelName: 'gemini-2.5-flash',
+            apiKey: process.env.GEMINI_API_KEY!,
         })
 
         this.nanobananaApiKey = process.env.NANOBANANA_API_KEY || ''
@@ -21,6 +21,19 @@ export class MultimodalProcessor {
         if (!this.nanobananaApiKey) {
             console.warn('[Multimodal] Nanobanana API key not configured')
         }
+    }
+
+    /**
+     * Strip data URI prefix from base64 string if present
+     * Converts "data:image/jpeg;base64,ABC123" to "ABC123"
+     */
+    private stripDataUriPrefix(base64String: string): string {
+        // Check if string contains data URI prefix
+        if (base64String.includes(';base64,')) {
+            return base64String.split(';base64,')[1]
+        }
+        // If no prefix, return as is
+        return base64String
     }
 
     /**
@@ -36,12 +49,12 @@ export class MultimodalProcessor {
             }
 
             const prompt = `Professional fitness illustration of ${exerciseName}.
-Requirements:
-- Clear form and technique demonstration
-- Anatomically correct positioning
-- Step-by-step visual if applicable
-${instructions ? `- ${instructions}` : ''}
-Style: Clean, educational, professional gym setting with proper lighting`
+                Requirements:
+                - Clear form and technique demonstration
+                - Anatomically correct positioning
+                - Step-by-step visual if applicable
+                ${instructions ? `- ${instructions}` : ''}
+                Style: Clean, educational, professional gym setting with proper lighting`
 
             console.log('[Multimodal] Generating exercise image:', exerciseName)
 
@@ -88,6 +101,9 @@ Style: Clean, educational, professional gym setting with proper lighting`
         try {
             console.log('[Multimodal] Analyzing exercise form with Gemini Vision')
 
+            // Strip data URI prefix if present
+            const cleanBase64 = this.stripDataUriPrefix(imageBase64)
+
             const message = new HumanMessage({
                 content: [
                     {
@@ -103,7 +119,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                     },
                     {
                         type: 'image_url',
-                        image_url: `data:image/jpeg;base64,${imageBase64}`,
+                        image_url: `data:image/jpeg;base64,${cleanBase64}`,
                     },
                 ],
             })
@@ -119,11 +135,46 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
     }
 
     /**
+     * Transcribe audio using Gemini
+     */
+    async transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
+        try {
+            console.log('[Multimodal] Transcribing audio with Gemini')
+
+            // Strip data URI prefix if present
+            const cleanBase64 = this.stripDataUriPrefix(audioBase64)
+
+            const message = new HumanMessage({
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Transcribe this audio file exactly as spoken. Do not add any commentary or extra text.',
+                    },
+                    {
+                        type: 'media',
+                        mimeType: mimeType,
+                        data: cleanBase64,
+                    } as any, // Cast to any because LangChain types might be slightly behind for generic media
+                ],
+            })
+
+            const response = await this.gemini.invoke([message])
+            return response.content as string
+        } catch (error) {
+            console.error('[Multimodal] Error transcribing audio:', error)
+            throw error
+        }
+    }
+
+    /**
      * Extract text description from image (general purpose)
      */
     async describeImage(imageBase64: string): Promise<string> {
         try {
             console.log('[Multimodal] Describing image with Gemini Vision')
+
+            // Strip data URI prefix if present
+            const cleanBase64 = this.stripDataUriPrefix(imageBase64)
 
             const message = new HumanMessage({
                 content: [
@@ -133,7 +184,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                     },
                     {
                         type: 'image_url',
-                        image_url: `data:image/jpeg;base64,${imageBase64}`,
+                        image_url: `data:image/jpeg;base64,${cleanBase64}`,
                     },
                 ],
             })

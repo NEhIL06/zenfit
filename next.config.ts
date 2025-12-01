@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
     ],
   },
   // Treat chromadb as external to avoid Turbopack processing internal files
-  serverExternalPackages: ['chromadb'],
+  serverExternalPackages: ['chromadb', '@chroma-core/default-embed'],
 };
 
 export default nextConfig;

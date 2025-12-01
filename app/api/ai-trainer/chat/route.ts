@@ -116,7 +116,7 @@ Give a short, warm, conversational response.`
     // 3️⃣ FITNESS MODE → RUN SELF-RAG PIPELINE
     // ---------------------------------------------------------
 
-    
+
     const ragResult = await runSelfRAG(message, userId, images, chatHistory);
 
     console.log("[Chat API] RAG Completed");
