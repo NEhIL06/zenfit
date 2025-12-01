@@ -38,9 +38,17 @@ export function saveUserToLocalStorage(userData: any): string {
 }
 
 export function getCurrentUser(): User | null {
-  if (typeof window === "undefined") return null
+  if (typeof window === "undefined"){
+    console.log("[Storage] getCurrentUser: window is undefined")
+    return null
+  }
+  console.log("[Storage] getCurrentUser: window is defined")
   const userId = localStorage.getItem("current_user_id")
-  if (!userId) return null
+  if (!userId){
+    console.log("[Storage] getCurrentUser: userId is undefined")
+    return null
+  }
+  console.log("[Storage] getCurrentUser: userId is defined")
   return getUserById(userId)
 }
 

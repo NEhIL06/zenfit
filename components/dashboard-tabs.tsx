@@ -4,6 +4,7 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import PlanTab from "@/components/plan-tab"
 import MilestonesTab from "@/components/milestones-tab"
+import AITrainerTab from "@/components/ai-trainer-tab"
 import type { User } from "@/types/user"
 
 interface DashboardTabsProps {
@@ -12,11 +13,12 @@ interface DashboardTabsProps {
 }
 
 export default function DashboardTabs({ user, onUserUpdate }: DashboardTabsProps) {
-  const [activeTab, setActiveTab] = useState<"plan" | "milestones">("plan")
+  const [activeTab, setActiveTab] = useState<"plan" | "milestones" | "ai-trainer">("plan")
 
   const tabs = [
-    { id: "plan", label: "My Plan", icon: "📋" },
-    { id: "milestones", label: "Milestones", icon: "🏆" },
+    { id: "plan" as const, label: "My Plan", icon: "📋" },
+    { id: "milestones" as const, label: "Milestones", icon: "🏆" },
+    { id: "ai-trainer" as const, label: "AI Trainer", icon: "🤖" },
   ]
 
   return (
@@ -26,12 +28,11 @@ export default function DashboardTabs({ user, onUserUpdate }: DashboardTabsProps
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as "plan" | "milestones")}
-            className={`pb-4 px-4 font-semibold transition-all flex items-center gap-2 ${
-              activeTab === tab.id
+            onClick={() => setActiveTab(tab.id as "plan" | "milestones" | "ai-trainer")}
+            className={`pb-4 px-4 font-semibold transition-all flex items-center gap-2 ${activeTab === tab.id
                 ? "text-[#2D5C44] dark:text-[#10B981] border-b-2 border-[#2D5C44] dark:border-[#10B981]"
                 : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-            }`}
+              }`}
           >
             <span>{tab.icon}</span>
             {tab.label}
@@ -48,6 +49,7 @@ export default function DashboardTabs({ user, onUserUpdate }: DashboardTabsProps
       >
         {activeTab === "plan" && <PlanTab user={user} onUserUpdate={onUserUpdate} />}
         {activeTab === "milestones" && <MilestonesTab userId={user.id} />}
+        {activeTab === "ai-trainer" && <AITrainerTab userId={user.id} />}
       </motion.div>
     </div>
   )

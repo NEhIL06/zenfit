@@ -1,324 +1,146 @@
-# 💪 AI Fitness Coach
+# Zenletics AI Trainer
 
-A comprehensive, AI-powered fitness application built with Next.js that provides personalized workout plans, diet recommendations, motivational quotes, voice guidance, and milestone tracking. The application features a beautiful dark/light mode toggle and a modern, responsive UI.
+![Zenletics Banner](https://placehold.co/1200x300/1a1a1a/ffffff?text=Zenletics+AI+Trainer)
 
-## ✨ Features
+> **Your Personal AI-Powered Fitness Coach.**  
+> Intelligent workout planning, real-time form analysis, and science-backed nutrition advice—all powered by advanced RAG and Multimodal AI.
 
-### Core Functionality
+## 🚀 Overview
 
-- **AI-Powered Personalization**: Generate customized 7-day workout and diet plans using Google Gemini AI
-- **User Authentication**: Secure signup and login system with user profile management
-- **Personalized Quotes**: Get AI-generated motivational quotes tailored to your fitness journey
-- **Voice Guidance**: AI-generated voice instructions for workouts
-- **Image Generation**: AI-generated fitness motivation images
-- **Milestone Tracking**: Track your fitness progress and achievements
-- **Dashboard**: Comprehensive dashboard with tabs for plans, milestones, and user management
+Zenletics is a cutting-edge fitness application that leverages the power of Generative AI to provide personalized health and wellness guidance. Unlike standard fitness apps, Zenletics uses a **Self-Reflective Retrieval Augmented Generation (Self-RAG)** engine to ensure advice is accurate, context-aware, and scientifically grounded.
 
-### UI/UX Features
+It combines **Google Gemini 2.5 Flash** for high-speed reasoning and vision capabilities with **ChromaDB** for vector storage, creating a system that "thinks" before it answers.
 
-- **Dark/Light Mode**: Toggle between dark and light themes with system preference detection
-- **Responsive Design**: Fully responsive design that works on all devices
-- **Modern UI**: Built with Tailwind CSS and Radix UI components
-- **Smooth Animations**: Framer Motion animations for enhanced user experience
+## ✨ Key Features
 
-## 📊 Additional Features
-
-### 🏆 Milestones Page
-
-Track your personal fitness achievements (e.g., first 5k run, 10 push-up streak) and share them with friends through a public link or social card.
-
-### 💬 Personalized Quotes Dashboard
-
-A dynamic section on the dashboard where AI-generated quotes appear based on user's details (e.g., age, gender, fitness goals).
-
-## 🚧 Challenges Faced & Solutions
-
-| Challenge | Description | Solution |
-|-----------|-------------|----------|
-| API Rate Limits | Nano Banana's free tier limited image generations | Implemented fallback to pollinations ai API seamlessly |
-| Free Tier limits with 11Labs | 11Labs TTS has limit in the free tier | Switched to gemini-2.5-flash-preview-tts for low-latency and built-in caching layer |
-| Motivation Drop-off | Users needed personalized engagement | Added personalized motivational quote system that adapts to user progress |
+-   **🧠 Self-Correcting AI Coach**: Uses a LangGraph-based Self-RAG workflow to retrieve, grade, and verify information before responding.
+-   **👁️ Multimodal Form Analysis**: Upload photos of your workout form, and the AI (powered by Gemini Vision) will analyze your posture and suggest corrections.
+-   **🏋️ Personalized Plans**: Generates custom workout and nutrition plans based on your unique goals, biometrics, and equipment availability.
+-   **⚡ Real-Time Streaming**: Experience zero-latency conversations with streaming responses.
+-   **🔍 Smart Web Search Fallback**: If the internal knowledge base is insufficient, the system autonomously performs a privacy-focused web search (DuckDuckGo) to find the latest information.
 
 ## 🛠️ Tech Stack
 
-- **Framework**: Next.js 16 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS 4
-- **UI Components**: Radix UI
-- **Animations**: Framer Motion
-- **Database**: MongoDB
-- **AI Integration**: Google Gemini API
-- **Theme Management**: next-themes
-- **Icons**: Lucide React
+### Frontend
+-   **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Turbopack)
+-   **Styling**: [TailwindCSS](https://tailwindcss.com/) v4 & [Shadcn/UI](https://ui.shadcn.com/)
+-   **State Management**: React Hooks & Server Actions
 
-## 📋 Prerequisites
+### Backend & AI
+-   **LLM**: Google Gemini 2.5 Flash
+-   **Orchestration**: [LangGraph](https://langchain-ai.github.io/langgraph/) (Stateful Agents)
+-   **Vector Database**: [ChromaDB](https://www.trychroma.com/) (Cloud Client)
+-   **Embeddings**: HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
+-   **Search**: DuckDuckGo Search API
 
-Before you begin, ensure you have the following installed:
+## 🏗️ System Architecture
 
-- Node.js 18+ and npm/yarn/pnpm
-- MongoDB database (local or cloud instance like MongoDB Atlas)
-- Google Gemini API key
+The system follows a modern serverless architecture leveraging Next.js API routes as the backend controller.
+
+```mermaid
+graph TD
+    User[User Client] -->|HTTPS| NextApp[Next.js App Router]
+    
+    subgraph "Backend Services"
+        NextApp -->|API Route| ChatAPI[Chat Endpoint]
+        ChatAPI -->|Orchestrate| SelfRAG[LangGraph Workflow]
+        
+        SelfRAG -->|Vector Search| Chroma[ChromaDB]
+        SelfRAG -->|Generate/Vision| Gemini[Gemini 2.5 Flash]
+        SelfRAG -->|Fallback Search| DDG[DuckDuckGo]
+    end
+    
+    subgraph "Data Layer"
+        Chroma <-->|Embeddings| HF[HuggingFace Inference]
+    end
+```
+
+## 🔄 RAG Pipeline Flow
+
+The core intelligence of Zenletics lies in its **Self-RAG** pipeline. This workflow ensures high-quality responses by grading retrieved documents and deciding whether to use internal knowledge or fetch external data.
+
+```mermaid
+graph TD
+    Start([Start]) --> Classify{Classify Query}
+    
+    Classify -- "General Chat" --> GenerateGeneral[Generate General Response]
+    Classify -- "Fitness Query" --> Retrieve[Retrieve Documents]
+    
+    Retrieve --> Grade[Grade Documents]
+    
+    Grade -- "Relevant Docs Found" --> Generate[Generate Answer]
+    Grade -- "No Relevant Docs" --> WebSearch[Web Search]
+    
+    WebSearch --> Generate
+    
+    GenerateGeneral --> End([End])
+    Generate --> End
+    
+    style Start fill:#f9f,stroke:#333,stroke-width:2px
+    style End fill:#f9f,stroke:#333,stroke-width:2px
+    style Classify fill:#bbf,stroke:#333,stroke-width:2px
+    style Generate fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+### Pipeline Steps:
+1.  **Classify**: The AI determines if the query is fitness-related or general conversation.
+2.  **Retrieve**: Fetches relevant documents from ChromaDB using semantic search.
+3.  **Grade**: A specialized "Grader Agent" evaluates if the retrieved documents actually answer the user's question.
+4.  **Decide**:
+    *   If documents are **relevant**, generate an answer immediately.
+    *   If documents are **irrelevant** or missing, trigger a **Web Search** to get fresh data.
+5.  **Generate**: Synthesizes the final answer using the best available context (internal or external).
 
 ## 🚀 Getting Started
 
-### 1. Clone the Repository
+### Prerequisites
+-   Node.js 18+
+-   npm or pnpm
+-   Google Gemini API Key
+-   ChromaDB Cloud Credentials
 
-```bash
-git clone <your-repo-url>
-cd ai-fitness-coach
-```
+### Installation
 
-### 2. Install Dependencies
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/yourusername/zenletics.git
+    cd zenletics
+    ```
 
-```bash
-npm install
-# or
-yarn install
-# or
-pnpm install
-```
+2.  **Install dependencies**
+    ```bash
+    npm install
+    ```
 
-### 3. Environment Variables
+3.  **Set up Environment Variables**
+    Create a `.env` file in the root directory:
+    ```env
+    # AI Keys
+    GEMINI_API_KEY=your_gemini_key
+    HF_API_KEY=your_huggingface_key
+    
+    # Database
+    CHROMA_API_KEY=your_chroma_key
+    CHROMA_TENANT_ID=your_tenant_id
+    CHROMA_DATABASE=your_database_name
+    ```
 
-Create a `.env.local` file in the root directory and add the following variables:
+4.  **Run the Development Server**
+    ```bash
+    npm run dev
+    ```
+    Open [http://localhost:3000](http://localhost:3000) to see the app.
 
-```env
-# Google Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
+## 🤝 Contributing
 
-# MongoDB Connection URI
-MONGODB_URI=mongodb://localhost:27017/fitness
-# or for MongoDB Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/fitness
-```
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### 4. Run the Development Server
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
-
-### 5. Build for Production
-
-```bash
-npm run build
-npm start
-```
-
-## 🌐 Deployment on Vercel
-
-Vercel is the recommended platform for deploying this Next.js application. Follow these steps:
-
-### Option 1: Deploy via Vercel CLI
-
-1. **Install Vercel CLI** (if not already installed):
-   ```bash
-   npm i -g vercel
-   ```
-
-2. **Login to Vercel**:
-   ```bash
-   vercel login
-   ```
-
-3. **Deploy**:
-   ```bash
-   vercel
-   ```
-   
-   Follow the prompts to configure your project.
-
-4. **Set Environment Variables**:
-   - Go to your project dashboard on Vercel
-   - Navigate to Settings → Environment Variables
-   - Add the following variables:
-     - `GEMINI_API_KEY`: Your Google Gemini API key
-     - `MONGODB_URI`: Your MongoDB connection string
-
-5. **Redeploy** (if needed):
-   ```bash
-   vercel --prod
-   ```
-
-### Option 2: Deploy via GitHub Integration
-
-1. **Push your code to GitHub** (if not already):
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin <your-github-repo-url>
-   git push -u origin main
-   ```
-
-2. **Import to Vercel**:
-   - Go to [vercel.com](https://vercel.com)
-   - Click "Add New Project"
-   - Import your GitHub repository
-   - Vercel will automatically detect Next.js
-
-3. **Configure Environment Variables**:
-   - In the project settings, add:
-     - `GEMINI_API_KEY`
-     - `MONGODB_URI`
-
-4. **Deploy**:
-   - Click "Deploy" and Vercel will build and deploy your application automatically
-
-### Option 3: Deploy via Vercel Dashboard
-
-1. Go to [vercel.com](https://vercel.com/new)
-2. Click "Import Git Repository"
-3. Select your repository
-4. Configure environment variables
-5. Click "Deploy"
-
-## 📁 Project Structure
-
-```
-ai-fitness-coach/
-├── app/                    # Next.js app directory
-│   ├── api/               # API routes
-│   │   ├── generate-image/
-│   │   ├── generate-plan/
-│   │   ├── generate-quote/
-│   │   ├── generate-voice/
-│   │   ├── milestones/
-│   │   ├── personalized-quote/
-│   │   └── users/
-│   ├── dashboard/         # Dashboard page
-│   ├── login/             # Login page
-│   ├── signup/            # Signup page
-│   ├── layout.tsx         # Root layout with ThemeProvider
-│   ├── page.tsx           # Home page
-│   └── globals.css        # Global styles with dark mode support
-├── components/            # React components
-│   ├── dashboard-tabs.tsx
-│   ├── footer.tsx
-│   ├── image-gallery-modal.tsx
-│   ├── milestones-tab.tsx
-│   ├── navbar.tsx         # Navbar with theme toggle
-│   ├── plan-tab.tsx
-│   ├── signup-form.tsx
-│   ├── theme-toggle.tsx   # Dark/Light mode toggle
-│   └── voice-player.tsx
-├── lib/                   # Utility libraries
-│   ├── gemini.ts          # Gemini AI integration
-│   ├── gemini-image.ts    # Image generation
-│   ├── gemini-voice.ts    # Voice generation
-│   ├── mongodb.ts         # MongoDB connection
-│   ├── storage.ts         # Local storage utilities
-│   └── utils.ts           # General utilities
-├── types/                 # TypeScript type definitions
-│   ├── milestone.ts
-│   └── user.ts
-└── next.config.ts         # Next.js configuration
-```
-
-## 🎨 Dark Mode
-
-The application includes a fully functional dark/light mode toggle:
-
-- **Toggle Button**: Located in the navbar (top right)
-- **System Preference**: Automatically detects and follows your system's theme preference
-- **Persistence**: Your theme preference is saved and persists across sessions
-- **Smooth Transitions**: Smooth theme transitions for better UX
-
-The theme is implemented using `next-themes` and Tailwind CSS dark mode classes.
-
-## 🔐 Environment Variables Reference
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `GEMINI_API_KEY` | Google Gemini API key for AI features | Yes |
-| `MONGODB_URI` | MongoDB connection string | Yes |
-
-## 📝 API Routes
-
-### Public Endpoints
-
-- `GET /api/generate-quote` - Generate a motivational quote
-- `POST /api/generate-plan` - Generate personalized fitness plan
-- `POST /api/generate-image` - Generate fitness motivation image
-- `POST /api/generate-voice` - Generate voice guidance
-- `POST /api/personalized-quote` - Generate personalized quote for user
-- `GET /api/milestones` - Get user milestones
-- `POST /api/users` - Create new user
-- `GET /api/users/[id]` - Get user by ID
-
-## 🧪 Development
-
-### Linting
-
-```bash
-npm run lint
-```
-
-### Building
-
-```bash
-npm run build
-```
-
-### Running Production Build Locally
-
-```bash
-npm run build
-npm start
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **MongoDB Connection Error**
-   - Ensure MongoDB is running locally or your Atlas cluster is accessible
-   - Verify `MONGODB_URI` is correct in `.env.local`
-
-2. **Gemini API Errors**
-   - Check that `GEMINI_API_KEY` is set correctly
-   - Verify your API key has proper permissions
-   - Check API rate limits
-
-3. **Theme Toggle Not Working**
-   - Ensure `next-themes` is installed: `npm install next-themes`
-   - Clear browser cache and reload
-
-4. **Build Errors on Vercel**
-   - Ensure all environment variables are set in Vercel dashboard
-   - Check build logs in Vercel for specific errors
-   - Verify Node.js version compatibility
-
-## Future Features
-- In the Future first there are Scope for UI improvements
-- Adding a chatbot to the app to help users with their fitness journey and provide personalized advice
-- Adding a feature to track and analyze user progress
-- Adding a feature to Manage their Milestones posts
-
-
-
+1.  Fork the Project
+2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the Branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
 
 ## 📄 License
 
-This project is private and proprietary.
-
-## 👤 Author
-
-Nehil Chandrakar
-
-## 🙏 Acknowledgments
-
-- Google Gemini for AI capabilities
-- Next.js team for the amazing framework
-- Vercel for seamless deployment
-- All contributors to the open-source libraries used in this project
-
----
-
-**Note**: Make sure to keep your API keys and database credentials secure. Never commit `.env.local` files to version control.
+Distributed under the MIT License. See `LICENSE` for more information.

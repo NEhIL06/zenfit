@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Treat chromadb as external to avoid Turbopack processing internal files
+  serverExternalPackages: ['chromadb'],
 };
 
 export default nextConfig;
