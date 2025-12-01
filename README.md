@@ -52,11 +52,11 @@ graph TB
     end
 
     subgraph API["API Layer (Next.js API Routes)"]
-        ChatAPI[/api/ai-trainer/chat]
-        PlanAPI[/api/generate-plan]
-        ImageAPI[/api/generate-image]
-        TranscribeAPI[/api/transcribe]
-        VoiceAPI[/api/generate-voice]
+        ChatAPI["Chat API"]
+        PlanAPI["Plan Generation API"]
+        ImageAPI["Image Generation API"]
+        TranscribeAPI["Audio Transcription API"]
+        VoiceAPI["Voice Generation API"]
     end
 
     subgraph AILayer["AI Processing Layer"]
@@ -300,7 +300,7 @@ class MultimodalProcessor {
 sequenceDiagram
     participant User
     participant Frontend as AITrainerTab
-    participant API as /api/ai-trainer/chat
+    participant API as "/api/ai-trainer/chat"
     participant Classifier
     participant RAG as Self-RAG Workflow
     participant VectorDB as ChromaDB
@@ -779,7 +779,7 @@ zenfit/
 sequenceDiagram
     participant User
     participant SignupForm
-    participant API as /api/generate-plan
+    participant API as "/api/generate-plan"
     participant Gemini
     participant MongoDB
 
@@ -801,7 +801,7 @@ graph LR
     B --> C[User speaks]
     C --> D[User stops recording]
     D --> E[Audio Blob created]
-    E --> F[POST /api/transcribe]
+    E --> F["POST /api/transcribe"]
     F --> G[Gemini processes audio]
     G --> H[Return transcribed text]
     H --> I[Populate input field]
@@ -820,7 +820,7 @@ graph TD
     B -->|Show/visualize keywords| C[Extract exercise/meal name]
     B -->|Normal query| D[Text-only response]
     
-    C --> E[POST /api/generate-image]
+    C --> E["POST /api/generate-image"]
     E --> F[Nanobanana API]
     F --> G{Success?}
     G -->|Yes| H[Return image URL]
