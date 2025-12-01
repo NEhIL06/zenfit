@@ -100,11 +100,11 @@ graph TB
     PlanAPI --> Gemini
     VoiceAPI --> Gemini
 
-    style Client fill:#e1f5ff
-    style API fill:#fff4e6
-    style AILayer fill:#f3e5f5
-    style Models fill:#e8f5e9
-    style DataLayer fill:#fce4ec
+    style Client fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000000
+    style API fill:#fff4e6,stroke:#333,stroke-width:2px,color:#000000
+    style AILayer fill:#f3e5f5,stroke:#333,stroke-width:2px,color:#000000
+    style Models fill:#e8f5e9,stroke:#333,stroke-width:2px,color:#000000
+    style DataLayer fill:#fce4ec,stroke:#333,stroke-width:2px,color:#000000
 ```
 
 ---
@@ -143,11 +143,11 @@ graph LR
     Multilingual --> END([Response])
     DirectResponse --> END
 
-    style Classify fill:#ffeb3b
-    style Retrieve fill:#4caf50
-    style Grade fill:#ff9800
-    style Generate fill:#2196f3
-    style WebSearch fill:#9c27b0
+    style Classify fill:#ffeb3b,color:#000000,stroke:#333,stroke-width:2px
+    style Retrieve fill:#4caf50,color:#000000,stroke:#333,stroke-width:2px
+    style Grade fill:#ff9800,color:#000000,stroke:#333,stroke-width:2px
+    style Generate fill:#2196f3,color:#ffffff,stroke:#333,stroke-width:2px
+    style WebSearch fill:#9c27b0,color:#ffffff,stroke:#333,stroke-width:2px
 ```
 
 #### 4. **Data Persistence Layer**
