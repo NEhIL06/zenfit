@@ -10,9 +10,7 @@ const MAX_RETRIEVAL = 6
 const LLM_GRADE_MAX_TOKENS = 64
 const LLM_GEN_MAX_TOKENS = 1024
 
-// ---------------
-// STATE SHAPE
-// ---------------
+// State Shape
 const SelfRAGStateAnnotation = Annotation.Root({
   question: Annotation<string>,
   generation: Annotation<string>,
@@ -26,9 +24,7 @@ const SelfRAGStateAnnotation = Annotation.Root({
 
 type SelfRAGState = typeof SelfRAGStateAnnotation.State
 
-// ------------------------
-// 2️⃣ RETRIEVAL
-// ------------------------
+// Retrieval Node
 async function retrieve(state: SelfRAGState, userId?: string): Promise<Partial<SelfRAGState>> {
   console.log("[Self-RAG] Retrieving docs")
 
@@ -44,9 +40,7 @@ async function retrieve(state: SelfRAGState, userId?: string): Promise<Partial<S
   return { documents }
 }
 
-// ------------------------
-// 3️⃣ DOC GRADING
-// ------------------------
+// Document Grading Node
 async function gradeDocuments(state: SelfRAGState): Promise<Partial<SelfRAGState>> {
   console.log("[Self-RAG] Grading docs")
 
@@ -77,9 +71,7 @@ Relevant? Answer:`
   }
 }
 
-// ------------------------
-// 4️⃣ WEB SEARCH
-// ------------------------
+// Web Search Node
 
 async function webSearch(state: SelfRAGState): Promise<Partial<SelfRAGState>> {
   console.log("[Self-RAG] Web search fallback")
@@ -97,9 +89,7 @@ async function webSearch(state: SelfRAGState): Promise<Partial<SelfRAGState>> {
   }
 }
 
-// ------------------------
-// 5️⃣ FINAL GENERATION
-// ------------------------
+// Final Generation Node
 async function generate(state: SelfRAGState, userId?: string, chatHistory?: { role: string, content: string }[]): Promise<Partial<SelfRAGState>> {
 
   console.log("[Self-RAG] Generating response")
@@ -187,9 +177,7 @@ Answer:
   return { generation: out }
 }
 
-// ------------------------
-// WORKFLOW BUILD
-// ------------------------
+// Workflow Definition
 export async function runSelfRAG(question: string, userId?: string, images?: string[], chatHistory?: { role: string, content: string }[]): Promise<SelfRAGResponse> {
   console.log("[Self-RAG] Start:", question)
 

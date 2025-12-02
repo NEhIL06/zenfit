@@ -11,22 +11,12 @@ interface GeminiResponse {
 import { GoogleGenAI } from "@google/genai";
 
 
-const apiKey = process.env.GEMINI_API_KEY;
 
-// const genAI = new GoogleGenAI({
-//   apiKey:apiKey
-// });
 
 const MODEL = "sentence-transformers/all-MiniLM-L6-v2";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const HF_API_KEY = process.env.HF_API_KEY;
-/**
- * 
- * BTW doing this in production is not recommended 
- * There are some security issues with this 
- * always keep you apis in the backend
- */
 
 
 export async function generateMotivationalQuote(): Promise<string> {

@@ -1,6 +1,5 @@
 /**
- * Multimodal Processor for AI Trainer
- * Handles image generation with Nanobanana and vision analysis with Gemini
+ * Multimodal Processor: Handles image generation (Nanobanana) and vision analysis (Gemini)
  */
 
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
@@ -23,10 +22,7 @@ export class MultimodalProcessor {
         }
     }
 
-    /**
-     * Strip data URI prefix from base64 string if present
-     * Converts "data:image/jpeg;base64,ABC123" to "ABC123"
-     */
+    /** Strip data URI prefix from base64 string */
     private stripDataUriPrefix(base64String: string): string {
         // Check if string contains data URI prefix
         if (base64String.includes(';base64,')) {
@@ -36,9 +32,7 @@ export class MultimodalProcessor {
         return base64String
     }
 
-    /**
-     * Generate exercise demonstration image using Nanobanana
-     */
+    /** Generate exercise demonstration image */
     async generateExerciseImage(
         exerciseName: string,
         instructions?: string
@@ -94,9 +88,7 @@ export class MultimodalProcessor {
         }
     }
 
-    /**
-     * Analyze user's exercise form from uploaded image using Gemini Vision
-     */
+    /** Analyze exercise form from image */
     async analyzeExerciseForm(imageBase64: string): Promise<string> {
         try {
             console.log('[Multimodal] Analyzing exercise form with Gemini Vision')
@@ -134,9 +126,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
         }
     }
 
-    /**
-     * Transcribe audio using Gemini
-     */
+    /** Transcribe audio */
     async transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
         try {
             console.log('[Multimodal] Transcribing audio with Gemini')
@@ -166,9 +156,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
         }
     }
 
-    /**
-     * Extract text description from image (general purpose)
-     */
+    /** Extract text description from image */
     async describeImage(imageBase64: string): Promise<string> {
         try {
             console.log('[Multimodal] Describing image with Gemini Vision')
@@ -197,9 +185,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
         }
     }
 
-    /**
-     * Determine if a query should trigger image generation
-     */
+    /** Check if query implies image generation */
     shouldGenerateImage(query: string): boolean {
         const triggers = [
             'show me',
@@ -218,9 +204,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
         return triggers.some((trigger) => queryLower.includes(trigger))
     }
 
-    /**
-     * Extract exercise name from query
-     */
+    /** Extract exercise name from query */
     extractExerciseName(query: string): string {
         // Simple extraction - could be enhanced with NLP
         const patterns = [

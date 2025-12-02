@@ -1,21 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSelfRAG } from "@/lib/ai-trainer/self-rag";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const GEMINI_MODEL = "gemini-2.5-flash";
-
-interface GeminiResponse {
-  response?: {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text: string }>;
-      };
-    }>;
-  };
-}
-
-
 import { GoogleGenAI } from "@google/genai";
+
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -24,7 +11,7 @@ const ai = new GoogleGenAI({
 /** Helper: call Gemini Flash  */
 async function callGemini(prompt: string) {
   const res = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: GEMINI_MODEL,
     contents: [{ parts: [{ text: prompt }] }],
     config: {
       systemInstruction: "You are an expert in fitness and nutrition",
