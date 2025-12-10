@@ -1,6 +1,7 @@
 // lib/ai-trainer/vector-store.ts
 
 import { addToCollection, getCollection, queryCollection, deleteFromCollection } from "../chroma";
+
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "@langchain/core/documents";
 
