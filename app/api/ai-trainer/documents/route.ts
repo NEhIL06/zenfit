@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 import { embedText } from "@/lib/gemini";
 import { getCollection } from "@/lib/chroma";
