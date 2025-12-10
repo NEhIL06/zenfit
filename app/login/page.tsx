@@ -5,7 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { getAllUsers } from "@/lib/storage"
+
 
 export default function LoginPage() {
   const router = useRouter()
@@ -20,18 +20,32 @@ export default function LoginPage() {
     setError("")
 
     try {
-      const users = getAllUsers()
-      const user = users.find((u) => u.email === email && u.password === password)
+      const response = await fetch(`/api/users?email=${encodeURIComponent(email)}`)
 
-      if (!user) {
+      if (!response.ok) {
+        if (response.status === 404) {
+          setError("Invalid email or password")
+          setLoading(false)
+          return
+        }
+        throw new Error("Login failed")
+      }
+
+      const user = await response.json()
+
+      // Check password (support both root level and formData level for backward compatibility/structure)
+      const userPassword = user.password || user.formData?.password
+
+      if (userPassword !== password) {
         setError("Invalid email or password")
         setLoading(false)
         return
       }
 
-      localStorage.setItem("current_user_id", user.id)
+      localStorage.setItem("current_user_id", user._id || user.id)
       router.push("/dashboard")
     } catch (err) {
+      console.error("Login error:", err)
       setError("Login failed. Please try again.")
     } finally {
       setLoading(false)

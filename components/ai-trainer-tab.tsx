@@ -49,14 +49,14 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
     // Helper: Check if user wants to see an image
     const shouldGenerateImage = (text: string): { generate: boolean, name?: string, type?: "exercise" | "meal" } => {
         const lowerText = text.toLowerCase()
-        const imageKeywords = ["show me", "image of", "picture of", "what does", "how does", "visualization", "visualize"]
+        const imageKeywords = ["show me", "image of", "picture of", "what does", "how does", "visualization", "visualize","generate","create"]
         const hasImageKeyword = imageKeywords.some(keyword => lowerText.includes(keyword))
 
         if (!hasImageKeyword) return { generate: false }
 
         // Extract the item name (simple extraction)
-        const exerciseKeywords = ["exercise", "workout", "pushup", "squat", "plank", "deadlift", "bench press"]
-        const mealKeywords = ["meal", "food", "dish", "recipe", "breakfast", "lunch", "dinner"]
+        const exerciseKeywords = ["exercise", "workout", "pushup","pullup", "situp", "squat", "plank", "deadlift", "bench press","sitdown","barbell"]
+        const mealKeywords = ["meal", "food", "dish", "recipe", "breakfast", "lunch", "dinner","mealplan"]
 
         const isExercise = exerciseKeywords.some(k => lowerText.includes(k))
         const isMeal = mealKeywords.some(k => lowerText.includes(k))
@@ -108,10 +108,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 const imageResponse = await fetch("/api/generate-image", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        name: imageRequest.name,
-                        type: imageRequest.type
-                    }),
+                    body: JSON.stringify({ name: imageRequest.name, type: imageRequest.type, currentInput: currentInput }),
                 })
 
                 const imageData = await imageResponse.json()

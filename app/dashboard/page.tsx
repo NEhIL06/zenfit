@@ -16,25 +16,27 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    if (!currentUser) {
-      router.push("/login")
-      return
-    }
-    setUser(currentUser)
+    const initDashboard = async () => {
+      const currentUser = await getCurrentUser()
+      if (!currentUser) {
+        router.push("/login")
+        return
+      }
+      console.log(currentUser)
+      setUser(currentUser)
 
-    const fetchQuote = async () => {
       try {
         const personalizedQuote = await generatePersonalizedQuote(currentUser)
         setQuote(personalizedQuote)
       } catch (error) {
         console.error("[v0] Failed to fetch quote:", error)
         setQuote("Every workout brings you closer to your goals!")
+      } finally {
+        setLoading(false)
       }
     }
 
-    fetchQuote()
-    setLoading(false)
+    initDashboard()
   }, [router])
 
   const handleLogout = () => {

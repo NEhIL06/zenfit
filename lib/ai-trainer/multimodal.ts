@@ -2,17 +2,19 @@
  * Multimodal Processor: Handles image generation (Nanobanana) and vision analysis (Gemini)
  */
 
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
+// import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { HumanMessage } from '@langchain/core/messages'
+import {ChatMistralAI} from "@langchain/mistralai";
+
 
 export class MultimodalProcessor {
-    private gemini: ChatGoogleGenerativeAI
+    private mistral: ChatMistralAI
     private nanobananaApiKey: string
 
     constructor() {
-        this.gemini = new ChatGoogleGenerativeAI({
-            modelName: 'gemini-2.5-flash',
-            apiKey: process.env.GEMINI_API_KEY!,
+        this.mistral = new ChatMistralAI({
+            apiKey: process.env.MISTRAL_API_KEY!,
+            modelName: 'mistral-small-latest',
         })
 
         this.nanobananaApiKey = process.env.NANOBANANA_API_KEY || ''
@@ -75,7 +77,7 @@ export class MultimodalProcessor {
 
             const data = await response.json()
             const imageUrl = data.images?.[0]?.url
-
+            console.log("[Multimodal] Image URL:", imageUrl)
             if (!imageUrl) {
                 throw new Error('No image URL returned from Nanobanana')
             }
@@ -116,7 +118,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                 ],
             })
 
-            const response = await this.gemini.invoke([message])
+            const response = await this.mistral.invoke([message])
 
             console.log('[Multimodal] Form analysis complete')
             return response.content as string
@@ -148,7 +150,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                 ],
             })
 
-            const response = await this.gemini.invoke([message])
+            const response = await this.mistral.invoke([message])
             return response.content as string
         } catch (error) {
             console.error('[Multimodal] Error transcribing audio:', error)
@@ -177,7 +179,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                 ],
             })
 
-            const response = await this.gemini.invoke([message])
+            const response = await this.mistral.invoke([message])
             return response.content as string
         } catch (error) {
             console.error('[Multimodal] Error describing image:', error)

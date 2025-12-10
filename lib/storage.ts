@@ -24,52 +24,99 @@ interface Milestone {
   createdAt: string
 }
 
-export function saveUserToLocalStorage(userData: any): string {
-  const users = getAllUsers()
-  const userId = userData.id;
-  const user: User = {
-    id: userId,
-    ...userData,
+export async function saveUser(userData: any): Promise<string> {
+  
+  try {
+    const response = await fetch(`/api/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({formData:userData}),
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to save user data")
+    }
+    const data = await response.json()
+    const userId = data.id
+    localStorage.setItem("current_user_id", userId)
+    return userId
+  } catch (error) {
+    console.error("[Storage] Error saving user:", error)
+    throw error
   }
-  users.push(user)
-  localStorage.setItem("fitness_users", JSON.stringify(users))
-  localStorage.setItem("current_user_id", userId)
-  return userId
 }
 
-export function getCurrentUser(): User | null {
-  if (typeof window === "undefined"){
+export async function getCurrentUser(): Promise<User | null> {
+  if (typeof window === "undefined") {
     console.log("[Storage] getCurrentUser: window is undefined")
     return null
   }
   console.log("[Storage] getCurrentUser: window is defined")
   const userId = localStorage.getItem("current_user_id")
-  if (!userId){
+  console.log("[Storage] getCurrentUser: userId is defined", userId)
+  if (!userId) {
     console.log("[Storage] getCurrentUser: userId is undefined")
     return null
   }
-  console.log("[Storage] getCurrentUser: userId is defined")
+
   return getUserById(userId)
 }
 
-export function getUserById(userId: string): User | null {
-  if (typeof window === "undefined") return null
-  const users = getAllUsers()
-  return users.find((u) => u.id === userId) || null
+export async function getUserById(userId: string): Promise<User | null> {
+  try {
+    const response = await fetch(`/api/users/${userId}`)
+    if (!response.ok) {
+      if (response.status === 404) return null
+      throw new Error("Failed to fetch user")
+    }
+    const user = await response.json()
+    const normalized: User = {
+      id: user._id || userId,
+      name: user.formData.name,
+      email: user.formData.email,
+      password: user.formData.password,
+      age: Number(user.formData.age),
+      gender: user.formData.gender,
+      height: Number(user.formData.height),
+      weight: Number(user.formData.weight),
+      fitnessGoal: user.formData.fitnessGoal,
+      fitnessLevel: user.formData.fitnessLevel,
+      workoutLocation: user.formData.workoutLocation,
+      dietaryPreference: user.formData.dietaryPreference,
+      medicalHistory: user.formData.medicalHistory,
+      stressLevel: user.formData.stressLevel,
+      plan: user.formData.plan,
+      createdAt: user.createdAt,
+    }
+    console.log("[Storage] getUserById: user is defined", user)
+    return normalized
+
+  } catch (error) {
+    console.error("[Storage] Error fetching user:", error)
+    return null
+  }
 }
 
-export function getAllUsers(): User[] {
-  if (typeof window === "undefined") return []
-  const users = localStorage.getItem("fitness_users")
-  return users ? JSON.parse(users) : []
-}
 
-export function updateUser(userId: string, updates: Partial<User>): void {
-  const users = getAllUsers()
-  const userIndex = users.findIndex((u) => u.id === userId)
-  if (userIndex !== -1) {
-    users[userIndex] = { ...users[userIndex], ...updates }
-    localStorage.setItem("fitness_users", JSON.stringify(users))
+
+export async function updateUser(userId: string, updates: Partial<User>): Promise<void> {
+  try {
+    const response = await fetch(`/api/users/${userId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updates),
+    })
+
+    if (!response.ok) {
+      throw new Error("Failed to update user")
+    }
+  } catch (error) {
+    console.error("[Storage] Error updating user:", error)
+    throw error
   }
 }
 

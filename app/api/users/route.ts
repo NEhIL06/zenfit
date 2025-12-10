@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const { formData } = await request.json()
     const { db } = await connectToDatabase()
     const usersCollection = db.collection("users")
-
+    console.log(formData.email)
     const existingUser = await usersCollection.findOne({ "formData.email": formData.email })
     if (existingUser) {
       return NextResponse.json({ error: "User already exists" }, { status: 400 })

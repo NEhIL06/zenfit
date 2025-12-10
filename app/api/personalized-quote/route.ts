@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server"
-import { GoogleGenAI } from "@google/genai"
+// import { GoogleGenAI } from "@google/genai"
+import { Mistral } from "@mistralai/mistralai"
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+// const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+
+const ai = new Mistral({
+  apiKey: MISTRAL_API_KEY || "",
+})
 
 export async function POST(request: Request) {
   try {
     const userData = await request.json()
 
-    const ai = new GoogleGenAI({
-      apiKey: GEMINI_API_KEY || "",
-    })
+    // const ai = new GoogleGenAI({
+    //   apiKey: GEMINI_API_KEY || "",
+    // })
 
     const prompt = `Generate a personalized, motivational fitness quote for someone with these details:
 - Name: ${userData.name}
@@ -19,12 +25,18 @@ export async function POST(request: Request) {
 
 Create an inspiring, concise quote (1-2 lines) that specifically addresses their fitness goal and current situation. Return only the quote, no attribution.`
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+    const response = await ai.chat.complete({
+      model: "mistral-small-latest",
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        }
+      ],
+      maxTokens: 100,
     })
 
-    const quote = response.candidates?.[0]?.content?.parts?.[0]?.text || "You are stronger than you think!"
+    const quote = response.choices[0].message.content?.toString() || "You are stronger than you think!"
 
     return NextResponse.json({ quote })
   } catch (error) {

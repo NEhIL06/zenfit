@@ -1,24 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSelfRAG } from "@/lib/ai-trainer/self-rag";
-import { GoogleGenAI } from "@google/genai";
+// import { GoogleGenAI } from "@google/genai";
+import { Mistral } from "@mistralai/mistralai";
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// const GEMINI_MODEL = "gemini-1.5-flash";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
+// const ai = new GoogleGenAI({
+//   apiKey: process.env.GEMINI_API_KEY!,
+// });
+
+const ai = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY!,
 });
 
 /** Helper: call Gemini Flash  */
 async function callGemini(prompt: string) {
-  const res = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [{ parts: [{ text: prompt }] }],
-    config: {
-      systemInstruction: "You are an expert in fitness and nutrition",
-    },
+
+  const res = await ai.chat.complete({
+    model: "mistral-small-latest",
+    messages: [
+      {
+        role: "user",
+        content: prompt,
+      },
+      {
+        role: "system",
+        content: "You are an expert in fitness and nutrition",
+      }
+    ],
+    
   });
 
-  const text = res.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  // const res = await ai.models.generateContent({
+  //   model: GEMINI_MODEL,
+  //   contents: [{ parts: [{ text: prompt }] }],
+  //   config: {
+  //     systemInstruction: "You are an expert in fitness and nutrition",
+  //   },
+  // });
+
+  const text = res.choices[0].message.content?.toString();
   return text ?? "";
 }
 

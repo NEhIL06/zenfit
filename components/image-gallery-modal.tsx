@@ -20,7 +20,7 @@ export default function ImageGalleryModal({ type, name, onClose }: ImageGalleryM
         const data = await generateImage(name, type)
         
         if (data) {
-          // setImageData(`data:image/png;base64,${data}`) 
+          setImageData(`data:image/png;base64,${data}`) 
           /**
            * 
            * The above set image is to be done when you are using Nano Banana
@@ -30,7 +30,7 @@ export default function ImageGalleryModal({ type, name, onClose }: ImageGalleryM
            * If you want to use Gemini API, you can uncomment the above line and comment out the below line.
            * and comment this code -> setImageData(data)
            */
-          setImageData(data)
+          // setImageData(data)
         }
         
         

@@ -1,7 +1,7 @@
 // lib/ai-trainer/vector-store.ts
 
 import { addToCollection, getCollection, queryCollection, deleteFromCollection } from "../chroma";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "@langchain/core/documents";
 
 /**
@@ -102,16 +102,16 @@ export class FitnessVectorStore {
     });
 
     const chunks = await splitter.splitDocuments(docs);
-    const texts = chunks.map((c) => c.pageContent);
+    const texts = chunks.map((c:any) => c.pageContent);
 
     // HF embeddings for each chunk
     const embeddings = await Promise.all(texts.map(embedTextHF));
 
     const ids = chunks.map(
-      (_, i) => `${collectionName}_${Date.now()}_${Math.random()}_${i}`
+      (_:any, i:any) => `${collectionName}_${Date.now()}_${Math.random()}_${i}`
     );
 
-    const metadatas = chunks.map((c) => ({
+    const metadatas = chunks.map((c:any) => ({
       ...c.metadata,
       addedAt: new Date().toISOString(),
     }));

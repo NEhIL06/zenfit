@@ -9,7 +9,7 @@ export async function generateExerciseImage(exerciseName: string): Promise<strin
     })
 
     const data = await response.json()
-    return data.description || ""
+    return data.imageData || ""
   } catch (error) {
     console.error("Error generating image:", error)
     throw error
@@ -27,7 +27,7 @@ export async function generateMealImage(mealName: string): Promise<string> {
     })
 
     const data = await response.json()
-    return data.description || ""
+    return data.imageData || ""
   } catch (error) {
     console.error("Error generating meal image:", error)
     throw error

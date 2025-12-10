@@ -5,7 +5,7 @@ import type React from "react"
 import { useState } from "react"
 import { motion } from "framer-motion"
 import { generateFitnessPlan } from "@/lib/gemini"
-import { saveUserToLocalStorage } from "@/lib/storage"
+import { saveUser } from "@/lib/storage"
 
 interface SignupFormProps {
   onComplete: (userId: string) => void
@@ -81,32 +81,29 @@ export default function SignupForm({ onComplete }: SignupFormProps) {
       setLoading(true)
       setError("")
 
-      // Step 1: Create user in MongoDB and get the userId
-      const response = await fetch('/api/users', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ formData }),
-      })
+      // // Step 1: Create user in MongoDB and get the userId
+      // const response = await fetch('/api/users', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify({ formData }),
+      // })
 
-      if (!response.ok) {
-        throw new Error('Failed to create user')
-      }
+      // if (!response.ok) {
+      //   throw new Error('Failed to create user')
+      // }
 
-      const data = await response.json();
-      const userId = data.id.toString(); // Convert ObjectId to string
 
       // Step 2: Generate fitness plan with the userId
       const plan = await generateFitnessPlan({
         ...formData,
-        userId: userId  // Pass userId to plan generation
+    // Pass userId to plan generation
       })
 
-      // Step 3: Save to localStorage with the same userId
-      saveUserToLocalStorage({
+      // Step 3: Save to MongoDB (update user with plan)
+      const userId = await saveUser({
         ...formData,
-        id: userId,
         plan,
         createdAt: new Date().toISOString(),
       })
@@ -130,8 +127,8 @@ export default function SignupForm({ onComplete }: SignupFormProps) {
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-all ${s <= step
-                  ? "bg-[#2D5C44] dark:bg-[#10B981] text-white"
-                  : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                ? "bg-[#2D5C44] dark:bg-[#10B981] text-white"
+                : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
                 }`}
             >
               {s}
