@@ -2,7 +2,7 @@
  * Multimodal Processor: Handles image generation (Nanobanana) and vision analysis (Gemini)
  */
 
-// import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { HumanMessage } from '@langchain/core/messages'
 import {ChatMistralAI} from "@langchain/mistralai";
 
@@ -10,11 +10,16 @@ import {ChatMistralAI} from "@langchain/mistralai";
 export class MultimodalProcessor {
     private mistral: ChatMistralAI
     private nanobananaApiKey: string
+    private gemini: ChatGoogleGenerativeAI
 
     constructor() {
         this.mistral = new ChatMistralAI({
             apiKey: process.env.MISTRAL_API_KEY!,
             modelName: 'mistral-small-latest',
+        })
+        this.gemini = new ChatGoogleGenerativeAI({
+            apiKey: process.env.GEMINI_API_KEY!,
+            model: 'gemini-2.0-flash-exp',
         })
 
         this.nanobananaApiKey = process.env.NANOBANANA_API_KEY || ''
@@ -150,7 +155,7 @@ Be encouraging but honest. Focus on biomechanics and proper muscle activation.`,
                 ],
             })
 
-            const response = await this.mistral.invoke([message])
+            const response = await this.gemini.invoke([message])
             return response.content as string
         } catch (error) {
             console.error('[Multimodal] Error transcribing audio:', error)

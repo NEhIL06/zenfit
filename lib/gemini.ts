@@ -166,32 +166,29 @@ export async function generateFitnessPlan(userDetails: any): Promise<any> {
 
 export async function embedText(text: string): Promise<number[]> {
   try {
-    const res = await fetch(
-      `https://api-inference.huggingface.co/pipeline/feature-extraction/${MODEL}`,
+    const response = await fetch(
+      "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${HF_API_KEY}`,
+          Authorization: `Bearer ${process.env.HF_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(text),
+        body: JSON.stringify({ inputs: text }),
       }
     );
-    console.log("[Embedding Response :", res)
 
-    if (!res.ok) {
-      throw new Error(`HF Error ${res.status}`);
-    }
+    const raw = await response.text();
+    const json = JSON.parse(raw);
 
-    const data = await res.json();
-    const vector = Array.isArray(data[0]) ? data[0] : data;
-
-    return vector;
+    const embedding = Array.isArray(json[0]) ? json[0] : json;
+    return embedding;
   } catch (err) {
-    console.error("[Gemini] embedText error:", err);
+    console.error("[embedText ERROR]", err);
     return [];
   }
 }
+
 
 
 

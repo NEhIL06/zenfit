@@ -45,8 +45,6 @@ async function embedTextHF(text: string): Promise<number[]> {
     // - [[[0.1, 0.2, ...]], [[0.3, 0.4, ...]]] (batch)
     // We want the first embedding array
     const embedding = Array.isArray(json[0]) ? json[0] : json;
-
-    console.log(`[HF Embeddings] Got embedding of length: ${embedding.length}`);
     return embedding;
   } catch (err) {
     console.error("[HF Embeddings] embedText error:", err);
@@ -121,10 +119,6 @@ export class FitnessVectorStore {
 
     await addToCollection(collectionName, ids, texts, embeddings, metadatas);
 
-    console.log(
-      `[VectorStore] Added ${chunks.length} chunks -> (${collectionName})`
-    );
-
     return ids;
   }
 
@@ -134,12 +128,10 @@ export class FitnessVectorStore {
 
   async similaritySearch(query: string, k: number, collectionName: string) {
     const embedding = await embedTextHF(query);
-    console.log("[VectorStore] Embedding for query:", embedding);
-
-    // if (!embedding.length) {
-    //   console.warn("[VectorStore] Empty embedding returned for query:", query);
-    //   return [];
-    // }
+    if (!embedding.length) {
+      console.warn("[VectorStore] Empty embedding returned for query:", query);
+      return [];
+    }
 
     await this.ensureCollection(collectionName);
 
