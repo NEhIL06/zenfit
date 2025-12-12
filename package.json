@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "postinstall": "node scripts/fix-chroma.js"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@chroma-core/default-embed": "0.1.5",
