@@ -31,12 +31,12 @@
 
 ZenFit is a next-generation fitness platform that leverages cutting-edge AI technologies to provide personalized fitness and nutrition guidance. The platform combines:
 
-- **Self-RAG Chatbot**: Intelligent conversational AI with retrieval-augmented generation
-- **Multimodal Interactions**: Support for text, voice (speech-to-text), and image analysis
-- **Vector Search**: ChromaDB-powered semantic search for fitness knowledge retrieval
-- **Personalized Plans**: AI-generated workout and meal plans based on user profiles
-- **Real-time Progress Tracking**: Milestone tracking and analytics
-- **Multilingual Support**: Responds in the user's query language
+- **Self-RAG Chatbot**: Intelligent conversational AI with retrieval-augmented generation using **Mistral AI**.
+- **Multimodal Interactions**: Support for text, voice (Gemini), and image analysis (Mistral Vision).
+- **Vector Search**: ChromaDB-powered semantic search for fitness knowledge retrieval.
+- **Personalized Plans**: AI-generated workout and meal plans based on user profiles.
+- **Real-time Progress Tracking**: Milestone tracking and analytics.
+- **Multilingual Support**: Responds in the user's query language.
 
 ---
 
@@ -67,9 +67,10 @@ graph TB
     end
 
     subgraph Models["AI Models & Services"]
-        Gemini[Google Gemini 2.5 Flash]
+        Mistral[Mistral AI (Text/Vision)]
+        Gemini[Google Gemini (Audio)]
         HF[HuggingFace Embeddings BGE-base-en-v1.5]
-        DDG[DuckDuckGo Search]
+        Wiki[Wikipedia API]
         Nanobanana[Nanobanana Image Gen]
     end
 
@@ -93,11 +94,11 @@ graph TB
     
     SelfRAG --> Chroma
     SelfRAG --> MongoDB
-    SelfRAG --> DDG
-    Multimodal --> Gemini
+    SelfRAG --> Wiki
+    Multimodal --> Mistral
     
     Chroma --> HF
-    PlanAPI --> Gemini
+    PlanAPI --> Mistral
     VoiceAPI --> Gemini
 
     style Client fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000000
@@ -151,7 +152,7 @@ graph LR
 ```
 
 #### 4. **Data Persistence Layer**
-- **Vector Database**: ChromaDB for semantic search
+- **Vector Database**: ChromaDB for semantic search (with custom embedding function)
 - **Document Database**: MongoDB for user profiles & fitness plans
 - **Caching**: Browser localStorage for chat history & user sessions
 
@@ -174,13 +175,13 @@ class SelfRAGWorkflow {
   // Node 1: Retrieve from vector database
   async retrieve(state: SelfRAGState, userId?: string): Promise<Partial<SelfRAGState>>
   
-  // Node 2: Grade document relevance
+  // Node 2: Grade document relevance (Mistral)
   async gradeDocuments(state: SelfRAGState): Promise<Partial<SelfRAGState>>
   
-  // Node 3: Fallback web search
+  // Node 3: Fallback web search (Wikipedia)
   async webSearch(state: SelfRAGState): Promise<Partial<SelfRAGState>>
   
-  // Node 4: Generate final response
+  // Node 4: Generate final response (Mistral)
   async generate(state: SelfRAGState, userId?: string, chatHistory?: ChatMessage[]): Promise<Partial<SelfRAGState>>
 }
 ```
@@ -193,14 +194,15 @@ class FitnessVectorStore {
   - fitness_global_knowledge    // Shared fitness knowledge base
   - fitness_user_{userId}        // User-specific documents
   
+  // Custom Embedding Function (Serverless Safe)
+  class GeminiEmbeddingFunction implements IEmbeddingFunction {
+    generate(texts: string[]): Promise<number[][]> // Uses HF BGE-base-en-v1.5
+  }
+  
   // Operations
   + addGlobalDocuments(docs: Document[]): Promise<string[]>
   + addUserDocuments(userId: string, docs: Document[]): Promise<string[]>
   + searchForUser(query: string, userId?: string, k: number): Promise<Document[]>
-  
-  // Processing
-  - Text Splitter: RecursiveCharacterTextSplitter (chunk_size=800, overlap=150)
-  - Embeddings: HuggingFace BGE-base-en-v1.5 (768 dimensions)
 }
 ```
 
@@ -208,14 +210,14 @@ class FitnessVectorStore {
 
 ```typescript
 class MultimodalProcessor {
-  // Image Analysis
+  // Image Analysis (Mistral Vision)
   + analyzeExerciseForm(imageBase64: string): Promise<string>
   + describeImage(imageBase64: string): Promise<string>
   
-  // Image Generation
+  // Image Generation (Nanobanana)
   + generateExerciseImage(exerciseName: string, instructions?: string): Promise<string>
   
-  // Audio Transcription
+  // Audio Transcription (Gemini)
   + transcribeAudio(audioBase64: string, mimeType: string): Promise<string>
   
   // Intent Detection
@@ -237,17 +239,17 @@ class MultimodalProcessor {
 ### 2. **Multimodal Interactions**
 
 #### Voice Input
-- **Speech-to-Text**: Gemini-powered audio transcription
+- **Speech-to-Text**: **Gemini-powered** audio transcription
 - **Language Detection**: Automatic language identification
 - **Seamless Integration**: Transcribed text populates chat input
 
 #### Image Processing
-- **Form Analysis**: AI-powered exercise form evaluation
-- **Image Generation**: Nanobanana-powered exercise/meal visualization
+- **Form Analysis**: **Mistral Vision** powered exercise form evaluation
+- **Image Generation**: **Nanobanana** powered exercise/meal visualization
 - **Intent Detection**: Automatic image request classification
 
 ### 3. **Personalized Fitness Planning**
-- **AI-Generated Plans**: Customized workout and nutrition plans
+- **AI-Generated Plans**: Customized workout and nutrition plans via **Mistral AI**
 - **User Profiling**: Age, gender, goals, fitness level, dietary preferences
 - **Plan Storage**: MongoDB persistence with vector indexing
 - **Progress Tracking**: Milestone creation and sharing
@@ -255,7 +257,7 @@ class MultimodalProcessor {
 ### 4. **Knowledge Management**
 - **Dual Vector Collections**: Global knowledge + per-user personalization
 - **Semantic Search**: Embedding-based similarity matching
-- **Web Search Fallback**: DuckDuckGo integration for missing knowledge
+- **Web Search Fallback**: **Wikipedia API** integration for missing knowledge
 - **Document Grading**: LLM-powered relevance scoring
 
 ---
@@ -277,12 +279,13 @@ class MultimodalProcessor {
 |------------|---------|---------|
 | LangChain | 0.3.36 | AI orchestration |
 | LangGraph | 0.2.74 | Workflow engine |
-| Google Gemini | 2.5 Flash | LLM for generation |
+| Mistral AI | mistral-small | Text generation & Vision |
+| Google Gemini | 2.0 Flash | Audio transcription |
 | HuggingFace | BGE-base-en-v1.5 | Text embeddings |
 | ChromaDB | 3.1.6 | Vector database |
 | MongoDB | 6.20.0 | Document database |
 | Nanobanana | Latest | Image generation |
-| DuckDuckGo | 2.2.7 | Web search |
+| Wikipedia API | v1 | Web search fallback |
 
 ### Development Tools
 - **Build**: Turbopack (Next.js 16)
@@ -305,19 +308,19 @@ sequenceDiagram
     participant RAG as Self-RAG Workflow
     participant VectorDB as ChromaDB
     participant MongoDB
-    participant Gemini as Google Gemini
-    participant WebSearch as DuckDuckGo
+    participant Mistral as Mistral AI
+    participant WebSearch as Wikipedia
 
     User->>Frontend: Send message (text/voice/image)
     Frontend->>API: POST /api/ai-trainer/chat {message, userId, chatHistory, images}
     
     API->>Classifier: Classify query (fitness vs general)
-    Classifier->>Gemini: Analyze query intent
-    Gemini-->>Classifier: Classification result
+    Classifier->>Mistral: Analyze query intent
+    Mistral-->>Classifier: Classification result
     
     alt General Query
-        Classifier->>Gemini: Generate casual response
-        Gemini-->>API: Conversational reply
+        Classifier->>Mistral: Generate casual response
+        Mistral-->>API: Conversational reply
         API-->>Frontend: {response, sources: []}
     else Fitness Query
         Classifier->>RAG: Execute Self-RAG workflow
@@ -327,22 +330,22 @@ sequenceDiagram
         VectorDB->>VectorDB: Search global + user collections
         VectorDB-->>RAG: Return relevant chunks
         
-        RAG->>Gemini: Grade document relevance
-        Gemini-->>RAG: Relevance scores
+        RAG->>Mistral: Grade document relevance
+        Mistral-->>RAG: Relevance scores
         
         alt Documents Relevant
             RAG->>MongoDB: Fetch user profile & plan
             MongoDB-->>RAG: User context
-            RAG->>Gemini: Generate response with context
+            RAG->>Mistral: Generate response with context
         else No Relevant Docs
             RAG->>WebSearch: Search for knowledge
             WebSearch-->>RAG: Web results
             RAG->>MongoDB: Fetch user profile & plan
             MongoDB-->>RAG: User context
-            RAG->>Gemini: Generate response with web context
+            RAG->>Mistral: Generate response with web context
         end
         
-        Gemini-->>RAG: Generated response
+        Mistral-->>RAG: Generated response
         RAG-->>API: {generation, sources, conversationId}
         API-->>Frontend: {response, sources, generatedImages}
     end
@@ -366,7 +369,7 @@ sequenceDiagram
 - **Similarity**: Cosine distance
 
 #### Step 3: Document Grading
-- **Grader**: Google Gemini 2.5 Flash
+- **Grader**: Mistral AI
 - **Prompt**: Binary relevance classification (yes/no)
 - **Threshold**: Explicit "yes" match
 - **Fallback**: Web search if all documents irrelevant
@@ -388,32 +391,35 @@ sequenceDiagram
 
 ## 🧠 AI Models & Services
 
-### 1. Google Gemini 2.5 Flash
+### 1. Mistral AI (Text & Vision)
 
 **Use Cases**:
-- Query classification (fitness vs general)
+- Query classification
 - Document relevance grading
 - Final response generation
-- Audio transcription
-- Exercise form analysis
+- Exercise form analysis (Vision)
 
 **Configuration**:
 ```typescript
-const genAI = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!
-})
-
-const response = await genAI.models.generateContent({
-  model: "gemini-2.5-flash",
-  contents: [{ parts: [{ text: prompt }] }],
-  config: {
-    maxOutputTokens: 1024,
-    systemInstruction: "You are an expert in fitness and nutrition"
-  }
+const ai = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY!
 })
 ```
 
-### 2. HuggingFace BGE-base-en-v1.5
+### 2. Google Gemini (Audio)
+
+**Use Cases**:
+- Audio transcription (Speech-to-Text)
+
+**Configuration**:
+```typescript
+const gemini = new ChatGoogleGenerativeAI({
+  apiKey: process.env.GEMINI_API_KEY!,
+  model: 'gemini-2.0-flash-exp',
+})
+```
+
+### 3. HuggingFace BGE-base-en-v1.5
 
 **Purpose**: Text embedding for semantic search
 
@@ -421,57 +427,16 @@ const response = await genAI.models.generateContent({
 - **Model**: `BAAI/bge-base-en-v1.5`
 - **Dimensions**: 768
 - **Max Tokens**: 512
-- **Performance**: ~1.5s per embedding
 
-**API Call**:
-```typescript
-const response = await fetch(
-  "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
-  {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${HF_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ inputs: text })
-  }
-)
-```
+### 4. Wikipedia API (Web Search)
 
-### 3. Nanobanana Image Generation
-
-**Purpose**: Generate exercise and meal images
-
-**Configuration**:
-```typescript
-const response = await fetch('https://api.nanobanana.ai/v1/images/generations', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${NANOBANANA_API_KEY}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    prompt: `Professional fitness illustration of ${exerciseName}...`,
-    width: 1024,
-    height: 1024,
-    num_inference_steps: 30,
-    guidance_scale: 7.5
-  })
-})
-```
-
-### 4. DuckDuckGo Search API
-
-**Purpose**: Web search fallback when vector DB has no relevant docs
+**Purpose**: Web search fallback when vector DB has no relevant docs. Replaced DuckDuckGo for better reliability.
 
 **Implementation**:
 ```typescript
-import { search } from 'duck-duck-scrape'
-
-const results = await search(query, {
-  safeSearch: SearchSafeMode.STRICT,
-  count: 3
-})
+const res = await fetch(
+  `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${query}&format=json`
+);
 ```
 
 ---
@@ -511,120 +476,6 @@ const results = await search(query, {
   conversationId: string       // Session identifier
 }
 ```
-
-**Example**:
-```bash
-curl -X POST http://localhost:3000/api/ai-trainer/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "What are the best exercises for building chest muscles?",
-    "userId": "user_123",
-    "chatHistory": []
-  }'
-```
-
----
-
-### Audio Transcription Endpoint
-
-#### `POST /api/transcribe`
-
-**Description**: Convert audio to text using Gemini
-
-**Request**: `multipart/form-data`
-- `file`: Audio file (webm, mp3, wav)
-
-**Response**:
-```typescript
-{
-  text: string  // Transcribed text
-}
-```
-
-**Example**:
-```javascript
-const formData = new FormData()
-formData.append('file', audioBlob, 'recording.webm')
-
-const response = await fetch('/api/transcribe', {
-  method: 'POST',
-  body: formData
-})
-```
-
----
-
-### Image Generation Endpoint
-
-#### `POST /api/generate-image`
-
-**Description**: Generate exercise or meal images using Nanobanana
-
-**Request Body**:
-```typescript
-{
-  name: string                 // Exercise/meal name
-  type: 'exercise' | 'meal'    // Image type
-}
-```
-
-**Response**:
-```typescript
-{
-  imageData: string  // Base64 encoded image or URL
-}
-```
-
----
-
-### Fitness Plan Generation
-
-#### `POST /api/generate-plan`
-
-**Description**: Generate personalized fitness and nutrition plan
-
-**Request Body**:
-```typescript
-{
-  name: string
-  age: number
-  gender: string
-  height: number
-  weight: number
-  fitnessGoal: string
-  fitnessLevel: string
-  workoutLocation: string
-  dietaryPreference: string
-  medicalHistory?: string
-  stressLevel?: string
-}
-```
-
-**Response**:
-```typescript
-{
-  summary: string
-  weeklySchedule: Array<{
-    day: string
-    workout: string
-    meals: string[]
-  }>
-  nutritionGuidelines: string
-  tips: string[]
-}
-```
-
----
-
-### Other Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/generate-quote` | GET | Generate motivational quote |
-| `/api/personalized-quote` | POST | User-specific motivational quote |
-| `/api/generate-voice` | POST | Text-to-speech conversion |
-| `/api/milestones` | GET/POST | Fetch/create user milestones |
-| `/api/users/[id]` | GET/PUT | User profile management |
 
 ---
 
@@ -692,10 +543,13 @@ npm start
 Create a `.env` file with the following variables:
 
 ```env
-# Google Gemini API
+# Mistral AI (Text & Vision)
+MISTRAL_API_KEY=your_mistral_api_key_here
+
+# Google Gemini API (Audio Transcription)
 GEMINI_API_KEY=your_gemini_api_key_here
 
-# HuggingFace API
+# HuggingFace API (Embeddings)
 HF_API_KEY=your_huggingface_api_key_here
 
 # Nanobanana API (Image Generation)
@@ -704,11 +558,12 @@ NANOBANANA_API_KEY=your_nanobanana_api_key_here
 # ChromaDB Configuration
 CHROMA_HTTP_HOST=localhost
 CHROMA_HTTP_PORT=8000
+CHROMA_API_KEY=your_chroma_api_key
+CHROMA_TENANT_ID=default_tenant
+CHROMA_DATABASE=default_database
 
 # MongoDB Connection
 MONGODB_URI=mongodb://localhost:27017/zenfit
-# OR for MongoDB Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/zenfit
 
 # Next.js Configuration
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -716,10 +571,11 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ### API Key Setup Instructions
 
-1. **Google Gemini**: [Get API Key](https://makersuite.google.com/app/apikey)
-2. **HuggingFace**: [Create Token](https://huggingface.co/settings/tokens)
-3. **Nanobanana**: [Sign Up](https://nanobanana.ai)
-4. **MongoDB Atlas**: [Create Cluster](https://www.mongodb.com/cloud/atlas)
+1. **Mistral AI**: [Get API Key](https://console.mistral.ai/)
+2. **Google Gemini**: [Get API Key](https://makersuite.google.com/app/apikey)
+3. **HuggingFace**: [Create Token](https://huggingface.co/settings/tokens)
+4. **Nanobanana**: [Sign Up](https://nanobanana.ai)
+5. **MongoDB Atlas**: [Create Cluster](https://www.mongodb.com/cloud/atlas)
 
 ---
 
@@ -752,10 +608,10 @@ zenfit/
 │   │   ├── self-rag.ts              # Self-RAG workflow (LangGraph)
 │   │   ├── vector-store.ts          # ChromaDB vector operations
 │   │   └── multimodal.ts            # Image & audio processing
-│   ├── gemini.ts                    # Gemini API wrapper
-│   ├── chroma.ts                    # ChromaDB client
+│   ├── gemini.ts                    # Mistral/Gemini wrapper
+│   ├── chroma.ts                    # ChromaDB client (Custom Embedder)
 │   ├── mongodb.ts                   # MongoDB connection
-│   ├── ddg.ts                       # DuckDuckGo search
+│   ├── ddg.ts                       # Wikipedia search
 │   └── storage.ts                   # LocalStorage utilities
 ├── types/                            # TypeScript definitions
 │   └── ai-trainer.ts                # Type interfaces
@@ -780,13 +636,13 @@ sequenceDiagram
     participant User
     participant SignupForm
     participant API as "/api/generate-plan"
-    participant Gemini
+    participant Mistral
     participant MongoDB
 
     User->>SignupForm: Fill profile details
     SignupForm->>API: POST {age, gender, goals, ...}
-    API->>Gemini: Generate personalized plan
-    Gemini-->>API: {summary, schedule, nutrition}
+    API->>Mistral: Generate personalized plan
+    Mistral-->>API: {summary, schedule, nutrition}
     API->>MongoDB: Save user + plan
     MongoDB-->>API: Success
     API-->>SignupForm: {userId, plan}
@@ -959,7 +815,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- **Google Gemini** for powerful LLM capabilities
+- **Mistral AI** for powerful LLM & Vision capabilities
+- **Google Gemini** for audio transcription
 - **HuggingFace** for open-source embeddings
 - **ChromaDB** for vector database infrastructure
 - **LangChain/LangGraph** for AI orchestration

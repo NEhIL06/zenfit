@@ -22,7 +22,6 @@ export default function DashboardPage() {
         router.push("/login")
         return
       }
-      console.log(currentUser)
       setUser(currentUser)
 
       try {

@@ -1,15 +1,13 @@
 // lib/chroma.ts
 
-import { CloudClient,Collection } from "chromadb";
+import { CloudClient, Collection } from "chromadb";
+import { embedText } from "./gemini";
 
-/**
- * Initialize Chroma Cloud Client
- * --------------------------------
- * Requires these env vars:
- * - CHROMA_API_KEY
- * - CHROMA_TENANT_ID
- * - CHROMA_DATABASE
- */
+// Define interface locally to avoid import issues
+export interface IEmbeddingFunction {
+  generate(texts: string[]): Promise<number[][]>;
+}
+
 
 export const chroma = new CloudClient({
   apiKey: process.env.CHROMA_API_KEY!,
@@ -17,15 +15,30 @@ export const chroma = new CloudClient({
   database: process.env.CHROMA_DATABASE!,
 });
 
+export class GeminiEmbeddingFunction implements IEmbeddingFunction {
+  async generate(texts: string[]): Promise<number[][]> {
+    const embeddings: number[][] = [];
+    for (const text of texts) {
+      const emb = await embedText(text);
+      embeddings.push(emb);
+    }
+    return embeddings;
+  }
+}
+
 /**
  * Get or create a Chroma collection.
  * CloudClient throws 404 for non-existing collections,
  * so we catch and create automatically.
  */
 export async function getCollection(name: string) {
+  const embedder = new GeminiEmbeddingFunction();
   try {
     console.log(`[Chroma] Fetching collection: ${name}`);
-    return await chroma.getOrCreateCollection({ name });
+    return await chroma.getOrCreateCollection({
+      name,
+      embeddingFunction: embedder
+    });
   } catch (err: any) {
     throw err;
   }
