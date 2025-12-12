@@ -67,8 +67,8 @@ graph TB
     end
 
     subgraph Models["AI Models & Services"]
-        Mistral[Mistral AI (Text/Vision)]
-        Gemini[Google Gemini (Audio)]
+        Mistral[Mistral AI Text/Vision]
+        Gemini[Google Gemini Audio]
         HF[HuggingFace Embeddings BGE-base-en-v1.5]
         Wiki[Wikipedia API]
         Nanobanana[Nanobanana Image Gen]
