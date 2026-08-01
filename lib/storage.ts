@@ -1,3 +1,5 @@
+import { handleApiResponse } from "./error-handler"
+
 interface User {
   id: string
   name: string
@@ -161,8 +163,10 @@ export async function generateImage(name: string, type: "exercise" | "meal"): Pr
       body: JSON.stringify({ name, type }),
     })
 
-    const data = await response.json()
-    return data.imageData || ""
+    const { data, isQuotaError, error } = await handleApiResponse(response, `${type} image (${name})`)
+    if (isQuotaError || error) return ""
+
+    return data?.imageData || ""
   } catch (error) {
     console.error("[v0] Error generating image:", error)
     throw error
@@ -179,8 +183,10 @@ export async function generateVoice(text: string, voiceName = "Puck"): Promise<s
       body: JSON.stringify({ text, voiceName }),
     })
 
-    const data = await response.json()
-    return data.audioData || ""
+    const { data, isQuotaError, error } = await handleApiResponse(response, "voice narration")
+    if (isQuotaError || error) return ""
+
+    return data?.audioData || ""
   } catch (error) {
     console.error("[v0] Error generating voice:", error)
     throw error

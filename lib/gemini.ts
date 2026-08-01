@@ -1,25 +1,10 @@
-interface GeminiResponse {
-  candidates: Array<{
-    content: {
-      parts: Array<{
-        text: string
-      }>
-    }
-  }>
-}
-
-// import { GoogleGenAI } from "@google/genai";
 import { Mistral } from "@mistralai/mistralai";
-
-
+import { handleApiResponse, showQuotaExceededToast } from "./error-handler";
 
 const MODEL = "sentence-transformers/all-MiniLM-L6-v2";
 
-// const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const HF_API_KEY = process.env.HF_API_KEY;
-
 
 export async function generateMotivationalQuote(): Promise<string> {
   try {
@@ -27,17 +12,17 @@ export async function generateMotivationalQuote(): Promise<string> {
       method: "GET",
     })
 
-    const data = await response.json()
-    return data.quote || "Your fitness journey starts today."
+    const { data, isQuotaError } = await handleApiResponse(response, "motivational quote")
+    if (isQuotaError) return "Your fitness journey starts today."
+
+    return data?.quote || "Your fitness journey starts today."
   } catch (error) {
     console.error("Error generating quote:", error)
-    throw error
+    return "Your fitness journey starts today."
   }
 }
 
-
 export async function generateText(prompt: string, maxTokens = 512): Promise<string> {
-  // If running on server, use SDK directly to avoid loopback fetch issues
   if (typeof window === 'undefined') {
     return generateTextServer(prompt, maxTokens);
   }
@@ -49,8 +34,10 @@ export async function generateText(prompt: string, maxTokens = 512): Promise<str
       body: JSON.stringify({ prompt, maxTokens }),
     });
 
-    const data = await res.json();
-    return data.text || "";
+    const { data, isQuotaError } = await handleApiResponse(res, "text generation")
+    if (isQuotaError) return ""
+
+    return data?.text || "";
   } catch (err) {
     console.error("[Gemini] generateText error:", err);
     return "";
@@ -90,7 +77,6 @@ export async function generateTextServer(prompt: string, maxTokens = 512): Promi
   }
 }
 
-
 export async function analyzeImageBase64(imageBase64: string): Promise<string> {
   try {
     // const response = await fetch(
@@ -120,7 +106,6 @@ export async function analyzeImageBase64(imageBase64: string): Promise<string> {
       apiKey: MISTRAL_API_KEY || "",
     });
 
-    
     const response = await ai.chat.complete({
       model: "mistral-small-latest",
       messages: [
@@ -156,7 +141,15 @@ export async function generateFitnessPlan(userDetails: any): Promise<any> {
       body: JSON.stringify(userDetails),
     })
 
-    const data = await response.json()
+    const { data, isQuotaError, error } = await handleApiResponse(response, "fitness plan")
+    if (isQuotaError) {
+      throw new Error(data?.message || "Fitness plan generation quota exceeded")
+    }
+
+    if (!response.ok || error) {
+      throw new Error(error || "Failed to generate fitness plan")
+    }
+
     return data
   } catch (error) {
     console.error("Error generating plan:", error)
@@ -178,6 +171,11 @@ export async function embedText(text: string): Promise<number[]> {
       }
     );
 
+    if (response.status === 429) {
+      showQuotaExceededToast("HuggingFace embedding API rate limit reached.", "text embedding")
+      return []
+    }
+
     const raw = await response.text();
     const json = JSON.parse(raw);
 
@@ -189,9 +187,6 @@ export async function embedText(text: string): Promise<number[]> {
   }
 }
 
-
-
-
 export async function generatePersonalizedQuote(userData: any): Promise<string> {
   try {
     const response = await fetch("/api/personalized-quote", {
@@ -202,8 +197,10 @@ export async function generatePersonalizedQuote(userData: any): Promise<string> 
       body: JSON.stringify(userData),
     })
 
-    const data = await response.json()
-    return data.quote || "You are stronger than you think!"
+    const { data, isQuotaError } = await handleApiResponse(response, "personalized quote")
+    if (isQuotaError) return "You are stronger than you think!"
+
+    return data?.quote || "You are stronger than you think!"
   } catch (error) {
     console.error("[v0] Error generating personalized quote:", error)
     throw error

@@ -18,12 +18,14 @@
 - [Technology Stack](#technology-stack)
 - [RAG Pipeline Architecture](#rag-pipeline-architecture)
 - [AI Models & Services](#ai-models--services)
+- [Caching Architecture](#caching-architecture)
 - [API Documentation](#api-documentation)
 - [Setup & Installation](#setup--installation)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 - [Data Flow Diagrams](#data-flow-diagrams)
 - [Security & Best Practices](#security--best-practices)
+
 
 ---
 
@@ -49,6 +51,7 @@ graph TB
         Voice[Voice Input]
         Image[Image Upload]
         Chat[Chat Interface]
+        SS["sessionStorage\nimage + voice mini-cache"]
     end
 
     subgraph API["API Layer (Next.js API Routes)"]
@@ -59,53 +62,72 @@ graph TB
         VoiceAPI["Voice Generation API"]
     end
 
+    subgraph Cache["Cache Layer (Upstash Redis)"]
+        RImgEx["global:img:exercise:{hash} · 30d"]
+        RImgMl["global:img:meal:{hash} · 30d"]
+        RRag["rag:user:{id}:{hash} · 1h"]
+        RChat["chat:general:{hash} · 1h"]
+    end
+
     subgraph AILayer["AI Processing Layer"]
         SelfRAG[Self-RAG Workflow]
         Classifier[Query Classifier]
-        IntentDetector[Intent Detector]
         Multimodal[Multimodal Processor]
     end
 
     subgraph Models["AI Models & Services"]
-        Mistral[Mistral AI Text/Vision]
-        Gemini[Google Gemini Audio]
-        HF[HuggingFace Embeddings BGE-base-en-v1.5]
+        Mistral["Mistral AI\nText + Vision"]
+        Gemini["Google Gemini\nTTS + Transcription"]
+        Pollinations["Pollinations.ai\nImage + TTS fallback"]
+        HF["HuggingFace\nBGE-base-en-v1.5"]
         Wiki[Wikipedia API]
-        Nanobanana[Nanobanana Image Gen]
     end
 
     subgraph DataLayer["Data Layer"]
         Chroma[ChromaDB Vector Store]
         MongoDB[MongoDB User Data]
-        LocalStorage[Browser LocalStorage]
     end
 
     UI --> ChatAPI
+    UI --> ImageAPI
     Voice --> TranscribeAPI
     Image --> ChatAPI
     Chat --> ChatAPI
 
+    ImageAPI --> RImgEx
+    ImageAPI --> RImgMl
+    RImgEx -->|HIT| ImageAPI
+    ImageAPI -->|MISS| Pollinations
+    ImageAPI -->|Store| RImgEx
+    ImageAPI --> SS
+
     ChatAPI --> Classifier
+    ChatAPI --> RRag
+    ChatAPI --> RChat
+    RRag -->|HIT| ChatAPI
     Classifier --> SelfRAG
     SelfRAG --> Multimodal
-    
+    ChatAPI -->|Store| RRag
+    PlanAPI -->|Invalidate| RRag
+
     TranscribeAPI --> Gemini
-    ImageAPI --> Nanobanana
-    
+    VoiceAPI --> Gemini
+    Gemini -->|Quota fail| Pollinations
+    VoiceAPI --> SS
+
     SelfRAG --> Chroma
     SelfRAG --> MongoDB
     SelfRAG --> Wiki
     Multimodal --> Mistral
-    
     Chroma --> HF
     PlanAPI --> Mistral
-    VoiceAPI --> Gemini
 
     style Client fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000000
     style API fill:#fff4e6,stroke:#333,stroke-width:2px,color:#000000
+    style Cache fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000000
     style AILayer fill:#f3e5f5,stroke:#333,stroke-width:2px,color:#000000
-    style Models fill:#e8f5e9,stroke:#333,stroke-width:2px,color:#000000
-    style DataLayer fill:#fce4ec,stroke:#333,stroke-width:2px,color:#000000
+    style Models fill:#fce4ec,stroke:#b71c1c,stroke-width:2px,color:#000000
+    style DataLayer fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#000000
 ```
 
 ---
@@ -260,6 +282,14 @@ class MultimodalProcessor {
 - **Web Search Fallback**: **Wikipedia API** integration for missing knowledge
 - **Document Grading**: LLM-powered relevance scoring
 
+### 5. **Robust Quota & Error Management**
+- **HTTP 429 Standardization**: Centralized API status code handling for quota limits across all AI routes (`/api/generate-image`, `/api/ai-trainer/chat`, `/api/generate-plan`, `/api/generate-voice`, `/api/transcribe`, `/api/generateText`, `/api/personalized-quote`, `/api/generate-quote`).
+- **Sonner Toast Feedback**: Real-time toast notifications alerting users immediately when API rate limits or quota exhaustion occurs.
+- **Graceful Fallbacks**: Automatic UI state management to prevent app crashes when upstream AI services hit capacity.
+
+### 6. **Sleek Custom Scrollbar**
+- **Modern UI Styling**: Custom thin black scrollbar with smooth rounded thumbs and subtle hover transitions for enhanced visual aesthetics across dark and light modes.
+
 ---
 
 ## 🛠️ Technology Stack
@@ -279,12 +309,13 @@ class MultimodalProcessor {
 |------------|---------|---------|
 | LangChain | 0.3.36 | AI orchestration |
 | LangGraph | 0.2.74 | Workflow engine |
-| Mistral AI | mistral-small | Text generation & Vision |
-| Google Gemini | 2.0 Flash | Audio transcription |
+| Mistral AI | mistral-small-latest | Text generation & Vision |
+| Google Gemini | 2.5 Flash | TTS + Audio transcription (primary) |
+| Pollinations.ai | gen.pollinations.ai | Image generation + TTS fallback (ElevenLabs-backed) |
 | HuggingFace | BGE-base-en-v1.5 | Text embeddings |
 | ChromaDB | 3.1.6 | Vector database |
 | MongoDB | 6.20.0 | Document database |
-| Nanobanana | Latest | Image generation |
+| Upstash Redis | @upstash/redis | Distributed persistent cache (Vercel KV) |
 | Wikipedia API | v1 | Web search fallback |
 
 ### Development Tools
@@ -441,7 +472,336 @@ const res = await fetch(
 
 ---
 
+## ⚡ Caching Architecture
+
+> **Design Philosophy**: Eliminate redundant AI API calls through a two-tier hybrid cache — a globally shared asset cache for immutable content (exercise/meal images) and a user-scoped response cache for personalized AI answers. All state persists in Upstash Redis, surviving every Vercel redeployment and cold start.
+
+---
+
+### 7.1 Why We Cache — The Problem
+
+ZenFit makes multiple expensive AI calls per user interaction:
+
+| Operation | Latency (uncached) | API Cost |
+|-----------|-------------------|----------|
+| Image generation (Pollinations Flux) | 3–8 seconds | Yes (credits) |
+| Voice TTS (Gemini) | 1–3 seconds | Yes (quota) |
+| RAG pipeline (Mistral × 8 calls) | 2–5 seconds | Yes (tokens) |
+| General chat (Mistral) | 0.5–1.5 seconds | Yes (tokens) |
+
+Without caching, asking "what's a push-up?" triggers the full Self-RAG pipeline on every request — 8 sequential LLM calls for a question whose answer hasn't changed. A fitness app serving 100 users asking overlapping exercise questions would exhaust free-tier quotas within hours.
+
+---
+
+### 7.2 Decision: Why Upstash Redis, Not In-Memory
+
+**Option A: Node.js In-Memory (`Map` / LRU)**
+- ✅ Zero infrastructure cost, zero latency
+- ❌ **Wiped on every Vercel deployment** (critical: Vercel redeploys on every `git push`)
+- ❌ Not shared across serverless function instances (each cold start gets empty cache)
+- ❌ Memory pressure on the 512MB serverless function limit
+
+**Option B: Upstash Redis (selected) ✅**
+- ✅ Persists across all deployments and cold starts
+- ✅ Shared across all serverless instances in parallel
+- ✅ HTTP-native (no TCP socket — works in serverless and Edge)
+- ✅ Free tier: 500K commands/month, 256MB storage
+- ❌ ~10–30ms added latency per cache lookup (acceptable vs. 3–8 second AI calls)
+
+**Option C: Vercel KV**
+- Same as Upstash (Vercel KV is Upstash Redis under the hood)
+- Slightly higher cost, but tighter Vercel integration
+- We use Upstash directly for portability
+
+```mermaid
+graph TD
+    A["Option A: In-Memory Map"]:::bad
+    B["Option B: Upstash Redis"]:::good
+    C["Option C: Vercel KV"]:::neutral
+
+    A --> A1["Wiped on redeploy ❌"]
+    A --> A2["Not shared across instances ❌"]
+
+    B --> B1["Persists across deploys ✅"]
+    B --> B2["Shared globally ✅"]
+    B --> B3["HTTP-native for serverless ✅"]
+    B --> B4["Free 500K cmds/mo ✅"]
+
+    C --> C1["Same as Upstash underneath"]
+    C --> C2["Higher cost, less portable"]
+
+    classDef bad fill:#ffcdd2,stroke:#b71c1c,color:#000
+    classDef good fill:#c8e6c9,stroke:#1b5e20,color:#000
+    classDef neutral fill:#fff9c4,stroke:#f57f17,color:#000
+```
+
+---
+
+### 7.3 Decision: Global vs. User-Scoped Image Cache
+
+**The Exercise Image Problem:**
+The LLM recommends exercises like "Push Ups", "Barbell Bench Press", and "Deadlift" across many users. Generating a new image for each user who gets "Push Ups" in their plan is wasteful — the image content (proper form) is **identical** for everyone.
+
+**Option A: User-Scoped (`user:{userId}:plan:{planId}:img:{hash}`)**
+- ❌ **No `planId` in this codebase** — plans are single upserted documents per user
+- ❌ Cache fragmentation: 100 users × same exercise = 100 identical API calls
+- ❌ Clearing requires tracking which images belong to which plan version
+
+**Option B: Global Asset Cache (selected) ✅ (`global:img:exercise:{hash}`)**
+- ✅ One image cached once, all users benefit forever
+- ✅ Cache hit rate approaches 100% as exercise pool warms up (~50 distinct exercises)
+- ✅ Plan regeneration doesn't need to clear image cache (correct form is immutable)
+- ❌ If Pollinations returns a bad image, all users see it until TTL expires
+
+```mermaid
+flowchart LR
+    subgraph UserA["User A — Day 1"]
+        A1["Plan: Push Ups, Deadlift"]
+    end
+    subgraph UserB["User B — Day 3"]
+        B1["Plan: Deadlift, Squats"]
+    end
+    subgraph UserC["User C — Day 7"]
+        C1["Plan: Push Ups, Squats"]
+    end
+
+    subgraph Redis["Upstash Redis — Global Image Cache"]
+        R1["global:img:exercise:push_ups → URL"]
+        R2["global:img:exercise:deadlift → URL"]
+        R3["global:img:exercise:squats → URL"]
+    end
+
+    A1 -->|"1st request: MISS → generate"| R1
+    A1 -->|"1st request: MISS → generate"| R2
+    B1 -->|"HIT (0ms)"| R2
+    B1 -->|"1st request: MISS → generate"| R3
+    C1 -->|"HIT (0ms)"| R1
+    C1 -->|"HIT (0ms)"| R3
+```
+
+---
+
+### 7.4 Cache Key Design & Normalization
+
+**Problem:** LLMs produce inconsistent exercise names:
+- `"Barbell Bench Press"` vs `"barbell bench press (barbell)"` vs `"Bench Press w/ Barbell"`
+
+All three should hit the same cache entry. Without normalization, you get 3 separate API calls for the same image.
+
+**Solution — Normalize Before Hashing:**
+
+```typescript
+// lib/cache.ts
+function normalizeKey(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')  // "Barbell Bench Press!" → "barbellbenchpress"
+    .trim()
+}
+
+function hashKey(...parts: string[]): string {
+  const joined = parts.map(normalizeKey).join(':')
+  return crypto.createHash('sha256').update(joined).digest('hex')
+}
+```
+
+**Full Key Schema:**
+
+```
+global:img:exercise:{sha256(normalized_exercise_name)}   → Pollinations URL (30d TTL)
+global:img:meal:{sha256(normalized_meal_name)}           → Pollinations URL (30d TTL)
+rag:user:{userId}:{sha256(normalized_question)}          → JSON response (1h TTL)
+chat:general:{sha256(normalized_message)}                → string response (1h TTL)
+```
+
+---
+
+### 7.5 High-Level Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph Client["Client (Browser)"]
+        UI["UI Components"]
+        SS["sessionStorage\n(voice + modal image)"]
+    end
+
+    subgraph Vercel["Vercel Serverless Functions"]
+        ImageAPI["POST /api/generate-image"]
+        VoiceAPI["POST /api/generate-voice"]
+        ChatAPI["POST /api/ai-trainer/chat"]
+        PlanAPI["POST /api/generate-plan"]
+    end
+
+    subgraph Cache["Upstash Redis (Persistent Global Cache)"]
+        GI["global:img:exercise:{hash}\n30-day TTL"]
+        GM["global:img:meal:{hash}\n30-day TTL"]
+        RU["rag:user:{userId}:{hash}\n1-hour TTL"]
+        GC["chat:general:{hash}\n1-hour TTL"]
+    end
+
+    subgraph AIProviders["AI Providers (External)"]
+        POL["Pollinations.ai\n(Image + TTS)"]
+        GEM["Gemini TTS\n(Primary Voice)"]
+        MIS["Mistral AI\n(Chat + RAG)"]
+    end
+
+    UI -->|"Image request"| ImageAPI
+    UI -->|"Voice request"| VoiceAPI
+    UI -->|"Chat message"| ChatAPI
+
+    ImageAPI -->|"1. Check cache"| GI
+    ImageAPI -->|"1. Check cache"| GM
+    GI -->|"HIT: return URL"| ImageAPI
+    ImageAPI -->|"MISS: generate"| POL
+    POL -->|"Image URL"| ImageAPI
+    ImageAPI -->|"Store URL"| GI
+
+    VoiceAPI -->|"Primary"| GEM
+    GEM -->|"Quota error"| POL
+    POL -->|"MP3 bytes"| VoiceAPI
+
+    ChatAPI -->|"2. Check cache"| RU
+    ChatAPI -->|"2. Check cache"| GC
+    RU -->|"HIT: return response"| ChatAPI
+    ChatAPI -->|"MISS: run RAG"| MIS
+    MIS -->|"Generated text"| ChatAPI
+    ChatAPI -->|"Store response"| RU
+
+    PlanAPI -->|"On plan regen: clear"| RU
+
+    ImageAPI -->|"Return URL"| UI
+    UI -->|"Cache URL"| SS
+    UI -->|"Cache audio"| SS
+
+    style Cache fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style Client fill:#e3f2fd,stroke:#1565c0,color:#000
+    style AIProviders fill:#fce4ec,stroke:#b71c1c,color:#000
+    style Vercel fill:#fff3e0,stroke:#e65100,color:#000
+```
+
+---
+
+### 7.6 Cache Request Flow (Sequence Diagram)
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant SessionStorage
+    participant API as "Next.js API Route"
+    participant Redis as "Upstash Redis"
+    participant Pollinations as "Pollinations API"
+
+    note over Browser: User clicks exercise name to see image
+
+    Browser->>SessionStorage: get("zenfit:img:pushups:exercise")
+    SessionStorage-->>Browser: null (MISS — first time)
+
+    Browser->>API: POST /api/generate-image {name: "Push Ups", type: "exercise"}
+
+    API->>Redis: GET global:img:exercise:{sha256("pushups")}
+    Redis-->>API: null (MISS — first time globally)
+
+    API->>Pollinations: GET /image/{prompt}?model=flux&seed=42
+    note over Pollinations: Authorization: Bearer sk_...
+    Pollinations-->>API: image/jpeg bytes (3–8s)
+
+    API->>Redis: SET global:img:exercise:{hash} "https://gen..." EX 2592000
+    note over Redis: 30-day TTL
+
+    API-->>Browser: { imageData: "https://gen.pollinations.ai/image/..." }
+
+    Browser->>SessionStorage: set("zenfit:img:pushups:exercise", URL)
+    Browser->>Browser: render <img src={URL} />
+
+    note over Browser: User closes modal, reopens it
+
+    Browser->>SessionStorage: get("zenfit:img:pushups:exercise")
+    SessionStorage-->>Browser: "https://gen..." (HIT — instant)
+    Browser->>Browser: render image immediately, 0 API calls
+
+    note over Browser: Different user on different machine
+
+    Browser->>API: POST /api/generate-image {name: "Push Ups", type: "exercise"}
+    API->>Redis: GET global:img:exercise:{hash}
+    Redis-->>API: "https://gen.pollinations.ai/image/..." (HIT!)
+    API-->>Browser: { imageData: "https://..." } (~15ms total)
+```
+
+---
+
+### 7.7 Cache Invalidation Strategy
+
+**When does cached data become stale?**
+
+| Cache Layer | Stale Trigger | Invalidation Strategy |
+|------------|---------------|----------------------|
+| Exercise images | Never (posture form is immutable) | Let TTL expire naturally (30d) |
+| Meal images | Never (food photography is immutable) | Let TTL expire naturally (30d) |
+| RAG chat responses | User regenerates plan | Active deletion: `clearPattern("rag:user:{userId}:*")` |
+| General chat | Very rarely | Let TTL expire naturally (1h) |
+| sessionStorage (image) | Browser tab closes | Automatic (session lifecycle) |
+| sessionStorage (voice) | Browser tab closes | Automatic (session lifecycle) |
+
+**Plan Regeneration Cache Invalidation Flow:**
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant PlanTab as "plan-tab.tsx"
+    participant PlanAPI as "POST /api/generate-plan"
+    participant Redis as "Upstash Redis"
+    participant Mistral
+
+    User->>PlanTab: Clicks "Regenerate Plan" → confirms
+    PlanTab->>PlanAPI: POST { userId, ...userDetails }
+
+    PlanAPI->>Mistral: Generate new 7-day plan
+    Mistral-->>PlanAPI: New plan JSON
+
+    PlanAPI->>Redis: SCAN + DEL "rag:user:{userId}:*"
+    note over Redis: Clears all cached RAG responses\nfor this user (stale with new plan)
+    Redis-->>PlanAPI: OK
+
+    note over Redis: global:img:exercise:* — NOT touched\nImages remain valid for all users
+
+    PlanAPI-->>PlanTab: New plan
+    PlanTab->>PlanTab: Re-render with new exercises/meals
+    note over PlanTab: Next time user asks AI trainer anything,\ncache MISS forces fresh Mistral call\nwith updated plan context
+```
+
+---
+
+### 7.8 Storage Budget Analysis
+
+**Upstash Free Tier: 256MB storage**
+
+| Cache Type | Key Count (estimate) | Value Size | Total |
+|-----------|---------------------|------------|-------|
+| Exercise image URLs | ~80 unique exercises | ~200 bytes | **16KB** |
+| Meal image URLs | ~100 unique meals | ~200 bytes | **20KB** |
+| RAG responses (100 active users) | ~500 entries | ~3KB avg | **1.5MB** |
+| General chat (popular Qs) | ~200 entries | ~2KB avg | **400KB** |
+| **Total estimated** | | | **~2MB** |
+
+We use **<1%** of the 256MB free tier. Voice audio (640KB per clip) is explicitly excluded from Redis for this reason — stored in browser `sessionStorage` instead.
+
+---
+
+### 7.9 Trade-off Summary
+
+| Decision | Trade-off Accepted | Why It's Worth It |
+|---------|-------------------|-------------------|
+| Upstash Redis over in-memory | +10–30ms per lookup | Survives redeployments; shared across all instances |
+| Global image cache (no userId) | Bad image affects all users | Near-100% hit rate; images are immutable content |
+| URL-only in Redis (not base64) | Browser makes extra CDN request | Keeps Redis under 256MB; Pollinations CDN is fast |
+| Voice in sessionStorage (not Redis) | Lost on tab close | 640KB/clip × users would exceed free tier |
+| 1h TTL for RAG | Slightly stale advice possible | Avoids serving old data after plan regeneration |
+| `SCAN` instead of `KEYS` for invalidation | Slightly more complex code | `KEYS` is O(N) blocking; `SCAN` is production-safe |
+
+---
+
 ## 📡 API Documentation
+
 
 ### Chat Endpoint
 
@@ -543,39 +903,58 @@ npm start
 Create a `.env` file with the following variables:
 
 ```env
-# Mistral AI (Text & Vision)
+# ── AI Services ────────────────────────────────────────────────────────────
+
+# Mistral AI (text generation, query classification, document grading)
 MISTRAL_API_KEY=your_mistral_api_key_here
 
-# Google Gemini API (Audio Transcription)
+# Google Gemini (TTS primary + audio transcription)
 GEMINI_API_KEY=your_gemini_api_key_here
+# Public key for client-side use (transcription)
+NEXT_PUBLIC_GEMINI=your_gemini_api_key_here
 
-# HuggingFace API (Embeddings)
+# HuggingFace (BGE-base-en-v1.5 text embeddings for ChromaDB)
 HF_API_KEY=your_huggingface_api_key_here
 
-# Nanobanana API (Image Generation)
-NANOBANANA_API_KEY=your_nanobanana_api_key_here
+# ── Image & Voice Generation ────────────────────────────────────────────────
 
-# ChromaDB Configuration
+# Pollinations.ai authenticated API (image generation + ElevenLabs TTS fallback)
+# Get key: https://enter.pollinations.ai/keys
+POLLINATIONS_API_KEY=your_pollinations_key_here
+# Image model: flux | ideogram-v4-turbo | nanobanana-2
+POLLINATIONS_IMAGE_MODEL=flux
+
+# Set to "true" ONLY when using a paid Gemini image quota (default: false)
+ENABLE_GEMINI_IMAGE=false
+
+# ── Cache Layer ─────────────────────────────────────────────────────────────
+
+# Upstash Redis (persistent distributed cache — free tier: 500K cmds/mo, 256MB)
+# Create database: https://console.upstash.com
+UPSTASH_REDIS_REST_URL=https://your-instance.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token_here
+
+# ── Database ────────────────────────────────────────────────────────────────
+
+# ChromaDB (vector store for Self-RAG)
 CHROMA_HTTP_HOST=localhost
 CHROMA_HTTP_PORT=8000
 CHROMA_API_KEY=your_chroma_api_key
 CHROMA_TENANT_ID=default_tenant
 CHROMA_DATABASE=default_database
 
-# MongoDB Connection
+# MongoDB (user profiles, fitness plans, milestones)
 MONGODB_URI=mongodb://localhost:27017/zenfit
-
-# Next.js Configuration
-NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 ### API Key Setup Instructions
 
 1. **Mistral AI**: [Get API Key](https://console.mistral.ai/)
-2. **Google Gemini**: [Get API Key](https://makersuite.google.com/app/apikey)
+2. **Google Gemini**: [Get API Key](https://aistudio.google.com/apikey)
 3. **HuggingFace**: [Create Token](https://huggingface.co/settings/tokens)
-4. **Nanobanana**: [Sign Up](https://nanobanana.ai)
-5. **MongoDB Atlas**: [Create Cluster](https://www.mongodb.com/cloud/atlas)
+4. **Pollinations.ai**: [Get API Key](https://enter.pollinations.ai/keys) — free tier, no CC required
+5. **Upstash Redis**: [Create Database](https://console.upstash.com) — free tier (500K cmds/mo)
+6. **MongoDB Atlas**: [Create Cluster](https://www.mongodb.com/cloud/atlas)
 
 ---
 
@@ -608,11 +987,14 @@ zenfit/
 │   │   ├── self-rag.ts              # Self-RAG workflow (LangGraph)
 │   │   ├── vector-store.ts          # ChromaDB vector operations
 │   │   └── multimodal.ts            # Image & audio processing
-│   ├── gemini.ts                    # Mistral/Gemini wrapper
+│   ├── cache.ts                     # Upstash Redis cache module (get/set/clearPattern)
+│   ├── error-handler.ts             # Centralized quota error + sonner toast handler
+│   ├── gemini.ts                    # Mistral/Gemini text wrapper
+│   ├── gemini-voice.ts              # Voice generation wrapper
 │   ├── chroma.ts                    # ChromaDB client (Custom Embedder)
 │   ├── mongodb.ts                   # MongoDB connection
 │   ├── ddg.ts                       # Wikipedia search
-│   └── storage.ts                   # LocalStorage utilities
+│   └── storage.ts                   # Client-side API fetch utilities
 ├── types/                            # TypeScript definitions
 │   └── ai-trainer.ts                # Type interfaces
 ├── scripts/                          # Utility scripts

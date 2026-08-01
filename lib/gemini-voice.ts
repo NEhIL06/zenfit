@@ -1,3 +1,5 @@
+import { handleApiResponse, showQuotaExceededToast } from "./error-handler"
+
 export async function generateVoice(text: string, voiceName = "Puck"): Promise<string> {
   try {
     const response = await fetch("/api/generate-voice", {
@@ -8,22 +10,27 @@ export async function generateVoice(text: string, voiceName = "Puck"): Promise<s
       body: JSON.stringify({ text, voiceName }),
     })
 
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Failed to generate voice");
+    const { data, isQuotaError, error } = await handleApiResponse(response, "voice narration")
+    if (isQuotaError) {
+      throw new Error(data?.message || "Voice narration quota exceeded")
     }
 
-    const data = await response.json()
-    const audioData = data.audioData
+    if (!response.ok || error) {
+      throw new Error(error || "Failed to generate voice narration")
+    }
 
+    const audioData = data?.audioData
     if (!audioData) {
-      throw new Error("No audio data received")
+      throw new Error("No audio data received from service")
     }
 
     // Return the base64-encoded WAV string directly
     return audioData
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating voice narration:", error)
+    if (!error?.message?.includes("quota")) {
+      showQuotaExceededToast(error?.message || "Failed to generate voice narration", "voice narration")
+    }
     throw error
   }
 }

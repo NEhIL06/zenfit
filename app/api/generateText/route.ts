@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { Mistral } from "@mistralai/mistralai";
-// const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 
 const ai = new Mistral({
   apiKey: MISTRAL_API_KEY || "",
 });
 
+function isQuotaError(e: any): boolean {
+  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
+  return (
+    e?.status === 429 ||
+    msg.includes("429") ||
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("too many requests")
+  )
+}
 
 export async function POST(request: Request) {
   try {
@@ -49,8 +60,14 @@ export async function POST(request: Request) {
       data.choices[0].message.content?.toString() ||
       "";
     return NextResponse.json({ text });
-  } catch (err) {
+  } catch (err: any) {
     console.error("[API /generateText] Error:", err);
-    return NextResponse.json({ text: "" }, { status: 500 });
+    if (isQuotaError(err)) {
+      return NextResponse.json(
+        { error: "QUOTA_EXCEEDED", message: "API text generation rate limit or quota exceeded." },
+        { status: 429 }
+      );
+    }
+    return NextResponse.json({ error: "Failed to generate text", text: "" }, { status: 500 });
   }
 }

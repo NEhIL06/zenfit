@@ -1,18 +1,30 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Mistral } from "@mistralai/mistralai"
+import { clearPattern, CacheKeys } from "@/lib/cache"
 
-// const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 
 const ai = new Mistral({
   apiKey: MISTRAL_API_KEY || "",
 });
 
+function isQuotaError(e: any): boolean {
+  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
+  return (
+    e?.status === 429 ||
+    msg.includes("429") ||
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("too many requests")
+  )
+}
+
 export async function POST(request: Request) {
   try {
     const userDetails = await request.json()
-    const userId = userDetails.userId || `user_${Date.now()}`
+    const userId = userDetails.id || userDetails.userId || `user_${Date.now()}`
 
     const prompt = `You are a certified fitness coach and nutrition expert.
 Given the user's details, generate a personalized 7-day workout and diet plan.
@@ -71,12 +83,7 @@ Output JSON only in this format:
 
     const response = await ai.chat.complete({
       model: "mistral-small-latest",
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        }
-      ],
+      messages: [{ role: "user", content: prompt }],
     });
     const data = response as any
     const responseText = data.choices[0].message.content?.toString() || ""
@@ -98,21 +105,39 @@ Output JSON only in this format:
             plan,
             updatedAt: new Date(),
           },
-          $setOnInsert: {
-            createdAt: new Date(),
-          }
+          $setOnInsert: { createdAt: new Date() },
         },
         { upsert: true }
       )
 
       console.log(`[Plan API] Stored plan for user: ${userId}`)
 
+      
+      // Cache Invalidation: clear all RAG responses for this user.
+      // The new plan changes the user's fitness context, so cached advice
+      // based on the old plan is now stale.
+      // Exercise/meal IMAGE cache is NOT cleared — posture form is immutable.
+      
+      const deleted = await clearPattern(CacheKeys.userRagPattern(userId))
+      if (deleted > 0) {
+        console.log(`[Plan API] Cleared ${deleted} stale RAG cache entries for user ${userId}`)
+      }
+
       return NextResponse.json(plan)
     }
 
     throw new Error("Invalid response format")
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating plan:", error)
+    if (isQuotaError(error)) {
+      return NextResponse.json(
+        {
+          error: "QUOTA_EXCEEDED",
+          message: "Fitness plan generation rate limit or API quota exceeded. Please try again later.",
+        },
+        { status: 429 }
+      )
+    }
     return NextResponse.json({ error: "Failed to generate plan" }, { status: 500 })
   }
 }

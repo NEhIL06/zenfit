@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
+import { handleApiResponse } from "@/lib/error-handler"
 
 interface AITrainerTabProps {
     userId: string
@@ -121,7 +122,10 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                     body: JSON.stringify({ name: imageRequest.name, type: imageRequest.type, currentInput: currentInput }),
                 })
 
-                const imageData = await imageResponse.json()
+                const { data: imageData, isQuotaError } = await handleApiResponse(imageResponse, "image request")
+                if (isQuotaError || !imageData?.imageData) {
+                    throw new Error("Quota exceeded or failed to generate image")
+                }
 
                 const aiMessage: Message = {
                     role: "assistant",
@@ -152,11 +156,13 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                     }),
                 })
 
-                if (!response.ok) {
-                    throw new Error("Failed to get response")
+                const { data, isQuotaError, error } = await handleApiResponse(response, "AI trainer chat")
+                if (isQuotaError) {
+                    throw new Error("Quota exceeded for AI trainer chat")
                 }
-
-                const data = await response.json()
+                if (!response.ok || !data?.response) {
+                    throw new Error(error || "Failed to get response")
+                }
 
                 const aiMessage: Message = {
                     role: "assistant",
@@ -169,13 +175,15 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 setMessages(updatedMessages)
                 saveHistory(updatedMessages)
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error sending message:", error)
             setMessages((prev) => [
                 ...prev,
                 {
                     role: "assistant",
-                    content: "Sorry, I encountered an error. Please try again.",
+                    content: error?.message?.includes("Quota exceeded")
+                        ? "API Quota Exceeded. Please try again later or check your API key / plan."
+                        : "Sorry, I encountered an error. Please try again.",
                     id: Date.now().toString(),
                 },
             ])
@@ -211,13 +219,14 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                         body: formData,
                     })
 
-                    if (!response.ok) throw new Error('Transcription failed')
+                    const { data, isQuotaError, error } = await handleApiResponse(response, "audio transcription")
+                    if (isQuotaError || !data?.text) {
+                        throw new Error(error || "Transcription failed")
+                    }
 
-                    const data = await response.json()
                     setInput((prev) => (prev ? `${prev} ${data.text}` : data.text))
                 } catch (error) {
                     console.error('Error transcribing:', error)
-                    // Optional: Show error toast
                 } finally {
                     setLoading(false)
                     stream.getTracks().forEach(track => track.stop())

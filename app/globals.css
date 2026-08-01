@@ -132,3 +132,43 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom Sleek Thin Black Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #18181b;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #27272a;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #18181b transparent;
+}
+
+.dark * {
+  scrollbar-color: #27272a transparent;
+}
+
