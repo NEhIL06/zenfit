@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "postinstall": "node scripts/patch-chroma-embed.js"
   },
   "dependencies": {
     "@chroma-core/default-embed": "0.1.5",

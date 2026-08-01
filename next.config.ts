@@ -10,21 +10,19 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Externalize chromadb and ALL its sub-packages so Turbopack never bundles them.
+  // Externalize chromadb and its sub-packages so Turbopack never bundles them.
   // These are server-only packages and must NEVER be included in the client bundle.
   serverExternalPackages: [
     'chromadb',
     '@chroma-core/default-embed',
     'onnxruntime-node',
   ],
-  // Turbopack-specific: tell the bundler to treat these as externals
-  // so it never traces into their broken CJS/ESM hybrid internals.
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        // Prevents Turbopack from statically analyzing @chroma-core/default-embed
-        '@chroma-core/default-embed': { browser: false },
-      },
+  // Turbopack config (top-level key in Next.js 15.3+ / 16)
+  // Alias @chroma-core/default-embed to our local stub so Turbopack never
+  // touches the broken CJS/ESM package in node_modules.
+  turbopack: {
+    resolveAlias: {
+      '@chroma-core/default-embed': './lib/chroma-embed-stub',
     },
   },
 };
