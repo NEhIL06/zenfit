@@ -14,11 +14,11 @@ export class MultimodalProcessor {
 
     constructor() {
         this.mistral = new ChatMistralAI({
-            apiKey: process.env.MISTRAL_API_KEY!,
+            apiKey: process.env.MISTRAL_API_KEY || '',
             modelName: 'mistral-small-latest',
         })
         this.gemini = new ChatGoogleGenerativeAI({
-            apiKey: process.env.GEMINI_API_KEY!,
+            apiKey: process.env.GEMINI_API_KEY || '',
             model: 'gemini-2.0-flash-exp',
         })
 

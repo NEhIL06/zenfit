@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSelfRAG } from "@/lib/ai-trainer/self-rag";
-// import { GoogleGenAI } from "@google/genai";
 import { Mistral } from "@mistralai/mistralai";
 
-// const GEMINI_MODEL = "gemini-1.5-flash";
+let mistralClient: Mistral | null = null;
 
-// const ai = new GoogleGenAI({
-//   apiKey: process.env.GEMINI_API_KEY!,
-// });
+function getMistralClient() {
+  if (!mistralClient) {
+    mistralClient = new Mistral({
+      apiKey: process.env.MISTRAL_API_KEY || "",
+    });
+  }
+  return mistralClient;
+}
 
-const ai = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY!,
-});
-
-/** Helper: call Gemini Flash  */
+/** Helper: call Gemini/Mistral Flash  */
 async function callGemini(prompt: string) {
-
+  const ai = getMistralClient();
   const res = await ai.chat.complete({
     model: "mistral-small-latest",
     messages: [
@@ -28,16 +28,7 @@ async function callGemini(prompt: string) {
         content: "You are an expert in fitness and nutrition",
       }
     ],
-    
   });
-
-  // const res = await ai.models.generateContent({
-  //   model: GEMINI_MODEL,
-  //   contents: [{ parts: [{ text: prompt }] }],
-  //   config: {
-  //     systemInstruction: "You are an expert in fitness and nutrition",
-  //   },
-  // });
 
   const text = res.choices[0].message.content?.toString();
   return text ?? "";
