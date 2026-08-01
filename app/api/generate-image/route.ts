@@ -1,69 +1,52 @@
 import { NextResponse } from "next/server"
-import { GoogleGenAI } from "@google/genai"
 
+// Set ENABLE_GEMINI_IMAGE=true in .env when you have a paid Gemini API quota
+const USE_GEMINI = process.env.ENABLE_GEMINI_IMAGE === "true"
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 export async function POST(request: Request) {
-  try {
-    const { name, type , currentInput} = await request.json()
+  const { name, type } = await request.json()
 
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not set in environment variables.");
-    }
+  let prompt: string
+  if (type === "exercise") {
+    prompt = `Realistic fitness photograph of a person performing ${name}, proper form, gym setting, professional lighting, motivational, high quality`
+  } else {
+    prompt = `Realistic food photography of ${name}, appetizing presentation, professional lighting, white plate on neutral background, clean food style`
+  }
 
-    const ai = new GoogleGenAI({
-      apiKey: GEMINI_API_KEY,
-    })
+  // --- Gemini path (only if paid quota is available) ---
+  if (USE_GEMINI && GEMINI_API_KEY) {
+    try {
+      const { GoogleGenAI } = await import("@google/genai")
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY })
 
-    let prompt: string
-    if (type === "exercise") {
-      prompt = `Create a realistic fitness photograph of ${name}, proper form, gym lighting, minimal background. The image should be professional and motivational.`
-    } else {
-      prompt = `Generate a realistic photo of ${name} in a clean food photography style, appetizing presentation, professional lighting, white plate on neutral background.`
-    }
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: prompt,
+      })
 
-    let response:any;
-    try{
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash-image",
-          contents: prompt
+      const parts = response?.candidates?.[0]?.content?.parts
+      const imagePart = Array.isArray(parts)
+        ? parts.find((p: any) => p.inlineData?.data)
+        : null
+
+      if (imagePart?.inlineData?.data) {
+        const mime = imagePart.inlineData.mimeType || "image/jpeg"
+        return NextResponse.json({
+          imageData: `data:${mime};base64,${imagePart.inlineData.data}`,
         })
-    }catch(e){
-      console.log("Gemini API error:", e);
-      console.error("Starting Fallback image generation...");
-      const image = await fetch(`https://image.pollinations.ai/prompt/${prompt}`);
-      console.log("Fallback image URL:", image.url);
-      return NextResponse.json({ imageData: image.url });
-      
+      }
+    } catch (e: any) {
+      // 429 quota exhausted → fall through to Pollinations
+      if (e?.status !== 429) {
+        console.error("[generate-image] Gemini error:", e?.message)
+      }
     }
+  }
 
-    let imageBase64:string = ""
-    
-    const parts = response?.candidates?.[0]?.content?.parts;
-    
-    if (!parts || !Array.isArray(parts)) {
-      throw new Error("Invalid response structure: 'parts' array not found");
-    }
-    
-    const imagePart = parts.find(part => part.inlineData && part.inlineData.data);
-    
-    if (imagePart) {
-      imageBase64 = imagePart?.inlineData?.data as string;
-    }
-    
-    if (!imageBase64) {
-      throw new Error("No image data received from API")
-    }
-    const mime = imagePart?.inlineData?.mimeType || "image/jpeg"
+  // --- Pollinations.ai fallback (free, no quota) ---
+  const encodedPrompt = encodeURIComponent(prompt)
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true`
 
-    const imageURI = `data:${mime};base64,${imageBase64}`
-    return NextResponse.json({ imageData: imageURI })
-
-  } catch (error) {
-    
-    console.error("[v0] Error generating image:", error)
-
-    const errorMessage = error instanceof Error ? error.message : "Failed to generate image";
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
- }
+  return NextResponse.json({ imageData: imageUrl })
 }
