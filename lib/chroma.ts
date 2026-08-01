@@ -1,6 +1,8 @@
 // lib/chroma.ts
+// NOTE: chromadb is imported LAZILY (dynamic import) at runtime only.
+// This prevents Turbopack from statically tracing into @chroma-core/default-embed
+// during the build, which causes a CJS/ESM module format conflict.
 
-import { CloudClient, Collection } from "chromadb";
 import { embedText } from "./gemini";
 
 // Define interface locally to avoid import issues
@@ -8,12 +10,20 @@ export interface IEmbeddingFunction {
   generate(texts: string[]): Promise<number[][]>;
 }
 
+// Lazy singleton — created on first use, never at module load time
+let _chromaClient: import("chromadb").CloudClient | null = null;
 
-export const chroma = new CloudClient({
-  apiKey: process.env.CHROMA_API_KEY!,
-  tenant: process.env.CHROMA_TENANT_ID!,
-  database: process.env.CHROMA_DATABASE!,
-});
+async function getChromaClient() {
+  if (!_chromaClient) {
+    const { CloudClient } = await import("chromadb");
+    _chromaClient = new CloudClient({
+      apiKey: process.env.CHROMA_API_KEY!,
+      tenant: process.env.CHROMA_TENANT_ID!,
+      database: process.env.CHROMA_DATABASE!,
+    });
+  }
+  return _chromaClient;
+}
 
 export class GeminiEmbeddingFunction implements IEmbeddingFunction {
   async generate(texts: string[]): Promise<number[][]> {
@@ -32,12 +42,13 @@ export class GeminiEmbeddingFunction implements IEmbeddingFunction {
  * so we catch and create automatically.
  */
 export async function getCollection(name: string) {
+  const chroma = await getChromaClient();
   const embedder = new GeminiEmbeddingFunction();
   try {
     console.log(`[Chroma] Fetching collection: ${name}`);
     return await chroma.getOrCreateCollection({
       name,
-      embeddingFunction: embedder
+      embeddingFunction: embedder,
     });
   } catch (err: any) {
     throw err;
