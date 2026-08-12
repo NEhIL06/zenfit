@@ -1,8 +1,3 @@
-# ─────────────────────────────────────────────────────────────────
-# ZenFit — Production Dockerfile
-# Multi-stage build: builder → runner
-# Node.js 20 LTS + Next.js standalone output
-# ─────────────────────────────────────────────────────────────────
 
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
