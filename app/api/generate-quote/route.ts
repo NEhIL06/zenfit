@@ -1,26 +1,25 @@
-import { Mistral } from "@mistralai/mistralai";
 import { NextResponse } from "next/server"
+import { getMistralClient } from "@/lib/mistral"
+import { isQuotaExceededError, toSafeErrorMessage } from "@/lib/error-handler"
+import { GenerateQuoteResponseSchema, validateResponse } from "@/lib/schemas"
+import { requireAuthUser } from "@/lib/api-security"
+import { checkRateLimit } from "@/lib/rate-limiter"
+import { logger } from "@/lib/logger"
 
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-
-const ai = new Mistral({
-  apiKey: MISTRAL_API_KEY || "",
-})
-
-function isQuotaError(e: any): boolean {
-  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
-  return (
-    e?.status === 429 ||
-    msg.includes("429") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("resource_exhausted") ||
-    msg.includes("too many requests")
-  )
-}
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireAuthUser(request)
+    if (!auth.ok) return auth.response
+
+    const rateLimit = await checkRateLimit(`quote_${auth.user.userId}`)
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: "QUOTA_EXCEEDED", message: "Quote generation rate limit exceeded. Please wait a minute." },
+        { status: 429 }
+      )
+    }
+
+    const ai = getMistralClient()
     const response = await ai.chat.complete({
       model: "mistral-small-latest",
       messages: [
@@ -31,13 +30,22 @@ export async function GET() {
       ],
     })
 
-    const data = response as any;
-    const quote = data.choices[0].message.content.toString() || "Your fitness journey starts today."
+    const quote = response.choices[0]?.message?.content?.toString()?.trim() || "Your fitness journey starts today."
+    const responsePayload = { quote, author: "ZenFit Coach" }
 
-    return NextResponse.json({ quote })
-  } catch (error: any) {
-    console.error("Error generating quote:", error)
-    if (isQuotaError(error)) {
+    // Zod Response Validation
+    const resValidation = validateResponse(GenerateQuoteResponseSchema, responsePayload)
+    if (!resValidation.success) {
+      logger.warn({ issues: resValidation.error }, "[Quote API] Response validation warning")
+    }
+
+    return NextResponse.json(responsePayload)
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, "[Quote API] Error generating quote")
+    const status = typeof error === "object" && error !== null && "status" in error
+      ? (error as { status?: number }).status
+      : undefined
+    if (isQuotaExceededError(status, error as Record<string, unknown>)) {
       return NextResponse.json(
         { error: "QUOTA_EXCEEDED", message: "API quote generation quota or rate limit exceeded." },
         { status: 429 }

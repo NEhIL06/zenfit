@@ -1,56 +1,15 @@
 // lib/ai-trainer/vector-store.ts
 
 import { addToCollection, getCollection, queryCollection, deleteFromCollection } from "../chroma";
+import { embedText } from "../gemini";
 
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "@langchain/core/documents";
 
-/**
- * Free HuggingFace embedding model (works on router.huggingface.co)
- */
-const HF_MODEL = "sentence-transformers/all-MiniLM-L6-v2";
-const HF_API_KEY = process.env.HF_API_KEY!;
-
-/**
- * HuggingFace Embedding Function (REST API)
- * --------------------------------------------------
- * Never deprecated, no SDK needed, no local model needed.
- */
-async function embedTextHF(text: string): Promise<number[]> {
-  try {
-    const response = await fetch(
-      "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${HF_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: text,
-        }),
-      }
-    );
-
-    const raw = await response.text();
-    if (!response.ok || raw.startsWith("Not Found") || raw.startsWith("<")) {
-      console.error("[HF Embeddings ERROR] Raw response:", raw);
-      return [];
-    }
-
-    const json = JSON.parse(raw);
-
-    // HuggingFace returns embeddings as either:
-    // - [[0.1, 0.2, ...]] (single text) or
-    // - [[[0.1, 0.2, ...]], [[0.3, 0.4, ...]]] (batch)
-    // We want the first embedding array
-    const embedding = Array.isArray(json[0]) ? json[0] : json;
-    return embedding;
-  } catch (err) {
-    console.error("[HF Embeddings] embedText error:", err);
-    return [];
-  }
-}
+type EmbeddedChunk = {
+  chunk: Document;
+  embedding: number[];
+};
 
 /**
  * FITNESS VECTOR STORE
@@ -101,23 +60,31 @@ export class FitnessVectorStore {
     });
 
     const chunks = await splitter.splitDocuments(docs);
-    const texts = chunks.map((c:any) => c.pageContent);
 
-    // HF embeddings for each chunk
-    const embeddings = await Promise.all(texts.map(embedTextHF));
+    const embeddedChunks: EmbeddedChunk[] = await Promise.all(
+      chunks.map(async (chunk) => ({
+        chunk,
+        embedding: await embedText(chunk.pageContent),
+      }))
+    );
+    const validChunks = embeddedChunks.filter((item) => item.embedding.length > 0);
+    if (validChunks.length === 0) return [];
 
-    const ids = chunks.map(
-      (_:any, i:any) => `${collectionName}_${Date.now()}_${Math.random()}_${i}`
+    const embeddings = validChunks.map((item) => item.embedding);
+    const documents = validChunks.map((item) => item.chunk.pageContent);
+
+    const ids = validChunks.map(
+      (_item, i) => `${collectionName}_${Date.now()}_${Math.random()}_${i}`
     );
 
-    const metadatas = chunks.map((c:any) => ({
-      ...c.metadata,
+    const metadatas = validChunks.map((item) => ({
+      ...item.chunk.metadata,
       addedAt: new Date().toISOString(),
     }));
 
     await this.ensureCollection(collectionName);
 
-    await addToCollection(collectionName, ids, texts, embeddings, metadatas);
+    await addToCollection(collectionName, ids, documents, embeddings, metadatas);
 
     return ids;
   }
@@ -127,7 +94,7 @@ export class FitnessVectorStore {
   // ---------------------------
 
   async similaritySearch(query: string, k: number, collectionName: string) {
-    const embedding = await embedTextHF(query);
+    const embedding = await embedText(query);
     if (!embedding.length) {
       console.warn("[VectorStore] Empty embedding returned for query:", query);
       return [];

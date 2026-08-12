@@ -1,25 +1,14 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
+import { isQuotaExceededError, toSafeErrorMessage } from "@/lib/error-handler"
+import { GenerateVoiceRequestSchema, GenerateVoiceResponseSchema, validateRequest, validateResponse } from "@/lib/schemas"
+import { requireAuthUser } from "@/lib/api-security"
+import { checkRateLimit } from "@/lib/rate-limiter"
+import { logger } from "@/lib/logger"
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY
 
-function isQuotaError(e: any): boolean {
-  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
-  return (
-    e?.status === 429 ||
-    msg.includes("429") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("resource_exhausted") ||
-    msg.includes("too many requests")
-  )
-}
-
-/**
- * Converts raw PCM audio data to a WAV file buffer.
- * The Gemini API returns 16-bit, single-channel, 24kHz PCM audio.
- */
 function pcmToWav(pcmData: Buffer): Buffer {
   const sampleRate = 24000
   const bitsPerSample = 16
@@ -46,11 +35,6 @@ function pcmToWav(pcmData: Buffer): Buffer {
   return Buffer.concat([header, pcmData])
 }
 
-/**
- * Fallback: Pollinations ElevenLabs-backed TTS.
- * Returns base64-encoded MP3 audio data.
- * Voice mapping: Gemini "Puck" → Pollinations "nova" (energetic male voice)
- */
 const GEMINI_TO_POLLINATIONS_VOICE: Record<string, string> = {
   Puck: "nova",
   Charon: "echo",
@@ -82,22 +66,37 @@ async function generateVoiceWithPollinations(
   }
 
   const arrayBuffer = await res.arrayBuffer()
-  const mp3Base64 = Buffer.from(arrayBuffer).toString("base64")
-  return mp3Base64
+  return Buffer.from(arrayBuffer).toString("base64")
 }
 
 export async function POST(request: Request) {
   try {
-    const { text, voiceName = "Puck" } = await request.json()
+    const auth = await requireAuthUser(request)
+    if (!auth.ok) return auth.response
 
-    
-    
+    const body = await request.json()
+
+    // 1. Zod Request Validation
+    const validation = validateRequest(GenerateVoiceRequestSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+
+    const { text } = validation.data
+    const voiceName = validation.data.voiceName || validation.data.voice || "Puck"
+    const rateLimit = await checkRateLimit(`voice_${auth.user.userId}`)
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: "QUOTA_EXCEEDED", message: "Voice generation rate limit exceeded. Please wait a minute." },
+        { status: 429 }
+      )
+    }
+
+    // 2. Gemini Primary TTS Path
     if (GEMINI_API_KEY) {
       try {
         const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY })
-
-        const maxLength = 1000
-        const textToProcess = text.substring(0, maxLength)
+        const textToProcess = text.substring(0, 1000)
 
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash-preview-tts",
@@ -119,25 +118,37 @@ export async function POST(request: Request) {
           const pcmBuffer = Buffer.from(data, "base64")
           const wavBuffer = pcmToWav(pcmBuffer)
           const audioBase64 = wavBuffer.toString("base64")
-          return NextResponse.json({ audioData: audioBase64, format: "wav" })
+          const responsePayload = { audioData: audioBase64, format: "wav" }
+          
+          const resValidation = validateResponse(GenerateVoiceResponseSchema, responsePayload)
+          if (!resValidation.success) {
+            logger.warn({ issues: resValidation.error }, "[generate-voice] Response validation warning")
+          }
+
+          return NextResponse.json(responsePayload)
         }
-      } catch (e: any) {
-        console.warn("[generate-voice] Gemini TTS failed, trying Pollinations fallback:", e?.message)
-        if (isQuotaError(e)) {
-          console.log("[generate-voice] Gemini quota exhausted — falling back to Pollinations ElevenLabs TTS")
-        }
-        // Fall through to Pollinations regardless of error type
+      } catch (e: unknown) {
+        logger.warn({ err: toSafeErrorMessage(e) }, "[generate-voice] Gemini TTS failed, using Pollinations fallback")
       }
     }
 
-    
-    console.log("[generate-voice] Using Pollinations TTS fallback")
+    // 3. Pollinations Fallback Path
     const mp3Base64 = await generateVoiceWithPollinations(text, voiceName)
-    return NextResponse.json({ audioData: mp3Base64, format: "mp3" })
+    const responsePayload = { audioData: mp3Base64, format: "mp3" }
 
-  } catch (error: any) {
-    console.error("[generate-voice] Error:", error)
-    if (isQuotaError(error)) {
+    const resValidation = validateResponse(GenerateVoiceResponseSchema, responsePayload)
+    if (!resValidation.success) {
+      logger.warn({ issues: resValidation.error }, "[generate-voice] Response validation warning")
+    }
+
+    return NextResponse.json(responsePayload)
+
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, "[generate-voice] Error")
+    const status = typeof error === "object" && error !== null && "status" in error
+      ? (error as { status?: number }).status
+      : undefined
+    if (isQuotaExceededError(status, error as Record<string, unknown>)) {
       return NextResponse.json(
         {
           error: "QUOTA_EXCEEDED",
@@ -146,7 +157,6 @@ export async function POST(request: Request) {
         { status: 429 }
       )
     }
-    const errorMessage = error instanceof Error ? error.message : "Failed to generate voice"
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return NextResponse.json({ error: "Failed to generate voice" }, { status: 500 })
   }
 }

@@ -13,9 +13,9 @@ interface MilestoneData {
   _id?: string
   id?: string
   userId: string
-  userName: string
+  userName?: string
   content: string
-  createdAt: string
+  createdAt?: string
   likes?: number
 }
 
@@ -35,7 +35,7 @@ export default function MilestonesTab({ userId, userName = "Anonymous" }: Milest
       const publicMilestones = await fetchPublicMilestones()
       setMilestones(publicMilestones)
     } catch (error) {
-      console.error("[v0] Failed to fetch milestones:", error)
+      console.error("[ZenFit] Failed to fetch milestones:", error)
     } finally {
       setLoading(false)
     }
@@ -47,10 +47,12 @@ export default function MilestonesTab({ userId, userName = "Anonymous" }: Milest
     setPosting(true)
     try {
       const newMilestone = await createMilestone(userId, userName, content)
-      setMilestones([newMilestone, ...milestones])
+      if (newMilestone) {
+        setMilestones([newMilestone, ...milestones])
+      }
       setContent("")
     } catch (error) {
-      console.error("[v0] Failed to post milestone:", error)
+      console.error("[ZenFit] Failed to post milestone:", error)
       alert("Failed to post milestone")
     } finally {
       setPosting(false)
@@ -97,7 +99,7 @@ export default function MilestonesTab({ userId, userName = "Anonymous" }: Milest
         ) : (
           milestones.map((milestone, index) => (
             <motion.div
-              key={milestone._id || milestone.id}
+              key={milestone._id || milestone.id || index}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
@@ -111,7 +113,7 @@ export default function MilestonesTab({ userId, userName = "Anonymous" }: Milest
                   <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{milestone.content}</p>
                 </div>
                 <span className="text-sm text-gray-500 dark:text-gray-400 ml-4 flex-shrink-0">
-                  {new Date(milestone.createdAt).toLocaleDateString()}
+                  {milestone.createdAt ? new Date(milestone.createdAt).toLocaleDateString() : "Just now"}
                 </span>
               </div>
               <div className="flex items-center gap-4">

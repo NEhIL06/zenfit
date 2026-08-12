@@ -1,12 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
+import { Sparkles, RefreshCw } from "lucide-react"
 import { generateFitnessPlan } from "@/lib/gemini"
-import { updateUser, generateImage } from "@/lib/storage"
-import { jsPDF } from "jspdf"
-
-import html2canvas from "html2canvas"
+import { generateImage } from "@/lib/storage"
 import ImageGalleryModal from "@/components/image-gallery-modal"
 import VoicePlayer from "@/components/voice-player"
 import { toPng } from "html-to-image";
@@ -16,7 +14,6 @@ interface PlanTabProps {
   user: User
   onUserUpdate: (user: User) => void
 }
-
 
 function formatWorkoutForSpeech(workout_plan: any[]): string {
   if (!workout_plan || workout_plan.length === 0) return "No workout plan available.";
@@ -43,6 +40,19 @@ function formatDietForSpeech(diet_plan: any[]): string {
   return speech;
 }
 
+function buildPlanPayload(user: User) {
+  return {
+    age: String(user.age || "25"),
+    gender: String(user.gender || "Male"),
+    height: String(user.height || "175"),
+    weight: String(user.weight || "70"),
+    fitnessGoal: String(user.fitnessGoal || "Muscle Gain"),
+    experienceLevel: String(user.fitnessLevel || "Beginner"),
+    workoutLocation: String(user.workoutLocation || "Home"),
+    dietaryPreference: String(user.dietaryPreference || "Standard"),
+  }
+}
+
 export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
   const [regenerating, setRegenerating] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -50,18 +60,42 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
   const [generatingImage, setGeneratingImage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [confirmingAction, setConfirmingAction] = useState<"plan" | "meal" | null>(null)
+  const [autoGenerating, setAutoGenerating] = useState(false)
 
   const plan = user.plan
 
-  const handleRegenerate = async () => {
+  const handleInitialGenerate = useCallback(async () => {
+    setAutoGenerating(true)
+    setErrorMessage(null)
+    try {
+      const newPlan = await generateFitnessPlan(buildPlanPayload(user))
+      const updatedUser = { ...user, plan: newPlan }
+      onUserUpdate(updatedUser)
+    } catch (error: unknown) {
+      console.error("[PlanTab] Initial auto-generation failed:", error)
+      setErrorMessage(error instanceof Error ? error.message : "Failed to generate initial AI fitness plan.")
+    } finally {
+      setAutoGenerating(false)
+    }
+  }, [onUserUpdate, user])
 
+  // Auto-generate plan if missing on load
+  useEffect(() => {
+    if (!plan && !autoGenerating) {
+      handleInitialGenerate()
+    }
+  }, [plan, autoGenerating, handleInitialGenerate])
+
+  const handleRegenerate = async () => {
     if (confirmingAction === "plan") {
       setConfirmingAction(null)
       setRegenerating(true)
       try {
-        const newPlan = await generateFitnessPlan(user)
+        const newPlan = await generateFitnessPlan({
+          ...buildPlanPayload(user),
+          regenerationScope: "diet",
+        })
         const updatedUser = { ...user, plan: newPlan }
-        await updateUser(user.id, { plan: newPlan })
         onUserUpdate(updatedUser)
       } catch (error) {
         console.error("[v0] Failed to regenerate plan:", error)
@@ -76,18 +110,12 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
   }
 
   const handleRegenerateMealPlan = async () => {
-
     if (confirmingAction === "meal") {
       setConfirmingAction(null)
       setRegenerating(true)
       try {
-        const newPlan = await generateFitnessPlan(user)
-        const updatedPlan = {
-          ...(plan || {}),
-          diet_plan: newPlan.diet_plan,
-        }
-        const updatedUser = { ...user, plan: updatedPlan }
-        await updateUser(user.id, { plan: updatedPlan })
+        const newPlan = await generateFitnessPlan(buildPlanPayload(user))
+        const updatedUser = { ...user, plan: newPlan }
         onUserUpdate(updatedUser)
       } catch (error) {
         console.error("[v0] Failed to regenerate meal plan:", error)
@@ -110,25 +138,25 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
         throw new Error("Could not find element #plan-content");
       }
       const dataUrl = await toPng(element);
-      const pdf = new jsPDF();
-      pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297);
-      pdf.save(`${user.name}-fitness-plan.pdf`);
-
-      /**
-       * 
-       * Use the package html-to-image to convert the HTML element to an image.
-       * because html2canvas is not compatible with modern CSS colors.
-       * 
-       */
+      const printWindow = window.open("", "_blank", "noopener,noreferrer");
+      if (!printWindow) {
+        throw new Error("Popup blocked while opening print view");
+      }
+      printWindow.document.title = `${user.name}-fitness-plan`;
+      const style = printWindow.document.createElement("style");
+      style.textContent = "body{margin:0;padding:24px;background:#fff}img{width:100%;height:auto;display:block}";
+      const image = printWindow.document.createElement("img");
+      image.src = dataUrl;
+      image.alt = "Fitness plan export";
+      printWindow.document.head.appendChild(style);
+      printWindow.document.body.appendChild(image);
+      image.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+      };
     } catch (error) {
       console.error("[v0] Failed to export PDF:", error)
-
-
-      if (error instanceof Error && error.message.includes("oklch")) {
-        setErrorMessage('PDF Export Failed: Your PDF library is not compatible with modern CSS colors. Please run "npm install html2canvas@latest" in your terminal to fix this.');
-      } else {
-        setErrorMessage("Failed to export PDF")
-      }
+      setErrorMessage("Failed to export PDF")
     } finally {
       setExporting(false)
     }
@@ -152,8 +180,42 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
 
   if (!plan) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-600 dark:text-gray-300">Plan not found. Please try again.</p>
+      <div className="backdrop-blur-xl bg-slate-900/80 border border-slate-800/80 rounded-3xl p-10 text-center space-y-6 shadow-2xl">
+        <div className="w-16 h-16 rounded-2xl bg-emerald-950 border border-emerald-800/50 flex items-center justify-center mx-auto text-emerald-400">
+          <Sparkles className="w-8 h-8 animate-pulse" />
+        </div>
+        <div className="space-y-2 max-w-md mx-auto">
+          <h3 className="text-xl font-bold text-white tracking-tight">
+            {autoGenerating ? "Synthesizing AI Fitness & Diet Plan..." : "No Active AI Fitness Plan"}
+          </h3>
+          <p className="text-slate-400 text-sm">
+            {autoGenerating
+              ? "Our CSCS-certified AI model is generating your custom 7-day workout split & macro nutrition targets based on your physical metrics."
+              : "Generate your custom 7-day workout split & macro nutrition targets engineered for your specific goal."}
+          </p>
+        </div>
+
+        {errorMessage && (
+          <p className="text-red-400 text-xs bg-red-950/60 border border-red-800/60 p-3 rounded-xl max-w-md mx-auto font-medium">
+            ⚠️ {errorMessage}
+          </p>
+        )}
+
+        <button
+          onClick={handleInitialGenerate}
+          disabled={autoGenerating}
+          className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black rounded-2xl shadow-xl shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-300 transition inline-flex items-center gap-3 disabled:opacity-50 cursor-pointer"
+        >
+          {autoGenerating ? (
+            <>
+              <RefreshCw className="w-5 h-5 animate-spin" /> Generating Plan...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-5 h-5" /> Generate AI Fitness Plan Now
+            </>
+          )}
+        </button>
       </div>
     )
   }
@@ -245,7 +307,7 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
                         {exercise.name}
                       </p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {exercise.sets}x{exercise.reps} • Rest: {exercise.rest_seconds}s
+                        {exercise.sets}x{exercise.reps} • Rest: {exercise.rest_seconds || exercise.rest || 60}s
                       </p>
                       {generatingImage === exercise.name && (
                         <p className="mt-2 text-xs text-[#10B981]">Generating image...</p>
@@ -274,35 +336,38 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {plan.diet_plan?.map((meal: any, index: number) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.5 + index * 0.1 }}
-                className="bg-gray-50 dark:bg-gray-800 rounded-xl p-6 border-l-4 border-[#10B981]"
-              >
-                <h4 className="font-bold text-lg mb-4 text-black dark:text-white">{meal.meal}</h4>
-                <div className="space-y-3">
-                  {meal.items?.map((item: any, itemIndex: number) => (
-                    <motion.div key={itemIndex} className="bg-white dark:bg-gray-700 p-3 rounded-lg">
-                      <p
-                        onClick={() => handleGenerateImage(item.name, "meal")}
-                        className="font-semibold text-black dark:text-white cursor-pointer hover:text-[#10B981] transition"
-                      >
-                        {item.name}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {item.calories}cal • {item.protein_g}g protein
-                      </p>
-                      {generatingImage === item.name && (
-                        <p className="mt-2 text-xs text-[#10B981]">Generating image...</p>
-                      )}
-                    </motion.div>
-                  ))}
-                </div>
-              </motion.div>
-            ))}
+            {plan.diet_plan?.map((meal: any, index: number) => {
+              const items = meal.items || (meal.name ? [{ name: meal.name, calories: meal.calories, protein_g: meal.protein_g || meal.protein }] : [])
+              return (
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.5 + index * 0.1 }}
+                  className="bg-gray-50 dark:bg-gray-800 rounded-xl p-6 border-l-4 border-[#10B981]"
+                >
+                  <h4 className="font-bold text-lg mb-4 text-black dark:text-white">{meal.meal}</h4>
+                  <div className="space-y-3">
+                    {items.map((item: any, itemIndex: number) => (
+                      <motion.div key={itemIndex} className="bg-white dark:bg-gray-700 p-3 rounded-lg">
+                        <p
+                          onClick={() => handleGenerateImage(item.name, "meal")}
+                          className="font-semibold text-black dark:text-white cursor-pointer hover:text-[#10B981] transition"
+                        >
+                          {item.name}
+                        </p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          {item.calories}cal • {item.protein_g || item.protein || 30}g protein
+                        </p>
+                        {generatingImage === item.name && (
+                          <p className="mt-2 text-xs text-[#10B981]">Generating image...</p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              )
+            })}
           </div>
 
           <div className="mt-6 flex flex-wrap gap-4 justify-center">
@@ -328,9 +393,9 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
           transition={{ delay: 0.6 }}
           className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-lg"
         >
-          <h3 className="text-2xl font-bold text-[#2D5C44] dark:text-[#10B981] mb-6">Motivation Tips</h3>
+          <h3 className="text-2xl font-bold text-[#2D5C44] dark:text-[#10B981] mb-6">Motivation & Coaching Tips</h3>
           <div className="space-y-4">
-            {plan.motivation_tips?.map((tip: string, index: number) => (
+            {(plan.motivation_tips || plan.recommendations || [])?.map((tip: string, index: number) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, x: -20 }}
@@ -354,4 +419,3 @@ export default function PlanTab({ user, onUserUpdate }: PlanTabProps) {
     </div>
   )
 }
-

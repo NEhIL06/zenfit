@@ -1,0 +1,141 @@
+name: ZenFit CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zenfit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Stage 1: Quality Gate ────────────────────────────────────────────────
+  # Runs on every push and every PR. All checks must pass before deploy.
+  quality:
+    name: Quality Gate (Lint · Type · Test · Audit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Type Check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Security Audit (block critical vulnerabilities)
+        run: npm audit --audit-level=critical
+        # Temporary threshold: high/moderate advisories remain in upstream
+        # Next.js/LangChain/Google SDK/Recharts dependencies with no standard
+        # npm fix available. Critical advisories must stay at zero.
+
+      - name: Run Unit & Integration Tests (Vitest)
+        run: npm run test
+        env:
+          # Minimal mock env vars — lets tests run without hitting real APIs.
+          # These are NOT real secrets; they are test stubs.
+          JWT_SECRET: "ci_test_jwt_secret_at_least_32_characters_long"
+          UPSTASH_REDIS_REST_URL: "https://test.upstash.io"
+          UPSTASH_REDIS_REST_TOKEN: "test_token"
+          ENABLE_GEMINI_IMAGE: "false"
+          NODE_ENV: "test"
+
+  # ─── Stage 2: Build ───────────────────────────────────────────────────────
+  # Verifies the production build compiles without errors.
+  build:
+    name: Build (Next.js Production)
+    runs-on: ubuntu-latest
+    needs: quality  # Only build if the quality gate passes
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Next.js Project
+        run: npm run build
+        env:
+          JWT_SECRET: "ci_build_jwt_secret_at_least_32_characters_long"
+          UPSTASH_REDIS_REST_URL: "https://test.upstash.io"
+          UPSTASH_REDIS_REST_TOKEN: "test_token"
+          NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+          NODE_ENV: "production"
+
+  # ─── Stage 3: Deploy ─────────────────────────────────────────────────────
+  # Deploys to Vercel production ONLY on pushes to main/master (not PRs).
+  #
+  # MANUAL SETUP REQUIRED before this works:
+  #   1. Go to: GitHub → Repository Settings → Secrets and Variables → Actions
+  #   2. Add the following repository secrets:
+  #      - VERCEL_TOKEN      (from vercel.com → Account Settings → Tokens)
+  #      - VERCEL_ORG_ID     (from vercel.com → team settings, or `vercel env ls`)
+  #      - VERCEL_PROJECT_ID (from your Vercel project settings page)
+  deploy:
+    name: Deploy to Vercel (Production)
+    runs-on: ubuntu-latest
+    needs: build  # Only deploy if the build passes
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Verify Vercel Secrets
+        run: |
+          test -n "${{ secrets.VERCEL_TOKEN }}"
+          test -n "${{ secrets.VERCEL_ORG_ID }}"
+          test -n "${{ secrets.VERCEL_PROJECT_ID }}"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      # Pull Vercel project config (creates .vercel/ directory with project metadata)
+      - name: Pull Vercel Environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Build on Vercel infrastructure (respects all env vars set in Vercel dashboard)
+      - name: Build on Vercel
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Deploy the pre-built output — fastest deploy path
+      - name: Deploy to Vercel Production
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

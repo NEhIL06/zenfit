@@ -1,135 +1,237 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { Mistral } from "@mistralai/mistralai"
+import { getMistralClient } from "@/lib/mistral"
 import { clearPattern, CacheKeys } from "@/lib/cache"
+import { isQuotaExceededError, toSafeErrorMessage } from "@/lib/error-handler"
+import { requireAuthUser } from "@/lib/api-security"
+import { checkRateLimit } from "@/lib/rate-limiter"
+import { GeneratePlanRequestSchema, GeneratePlanResponseSchema, validateRequest, validateResponse, type GeneratePlanResponse } from "@/lib/schemas"
+import { logger } from "@/lib/logger"
 
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 
-const ai = new Mistral({
-  apiKey: MISTRAL_API_KEY || "",
-});
 
-function isQuotaError(e: any): boolean {
-  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
-  return (
-    e?.status === 429 ||
-    msg.includes("429") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("resource_exhausted") ||
-    msg.includes("too many requests")
-  )
-}
-
+// requestContents: 
+// flow: zod -> check auth -> rate limit -> prompt engineering -> mistral -> store in db -> clear cache -> return response
 export async function POST(request: Request) {
   try {
-    const userDetails = await request.json()
-    const userId = userDetails.id || userDetails.userId || `user_${Date.now()}`
+    const auth = await requireAuthUser(request)
+    if (!auth.ok) return auth.response
 
-    const prompt = `You are a certified fitness coach and nutrition expert.
-Given the user's details, generate a personalized 7-day workout and diet plan.
+    const body = await request.json()
 
-User details:
-name: ${userDetails.name}
-age: ${userDetails.age}
-gender: ${userDetails.gender}
-height: ${userDetails.height}cm
-weight: ${userDetails.weight}kg
-goal: ${userDetails.fitnessGoal}
-level: ${userDetails.fitnessLevel}
-location: ${userDetails.workoutLocation}
-diet: ${userDetails.dietaryPreference}
+    // 1. Zod Request Validation
+    const validation = validateRequest(GeneratePlanRequestSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
 
-Output JSON only in this format:
+    const userDetails = validation.data
+    const userId = auth.user.userId
+
+    // 2. Rate Limiting Check
+    const rateLimit = await checkRateLimit(`plan_${userId}`)
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: "QUOTA_EXCEEDED", message: "Plan generation rate limit exceeded. Please wait a minute." },
+        { status: 429 }
+      )
+    }
+
+    // 3. Structured Prompt Engineering (CSCS & Nutrition Rules)
+    const prompt = `You are a CSCS-certified strength coach and registered dietitian.
+Generate a structured 7-day personalized workout and diet plan for the following client:
+
+Client Profile:
+- Age: ${userDetails.age}
+- Gender: ${userDetails.gender}
+- Height: ${userDetails.height}cm
+- Weight: ${userDetails.weight}kg
+- Fitness Goal: ${userDetails.fitnessGoal}
+- Experience Level: ${userDetails.experienceLevel}
+- Workout Location: ${userDetails.workoutLocation}
+- Dietary Preference: ${userDetails.dietaryPreference || 'Standard'}
+
+RULES & CONSTRAINTS:
+1. Calculate TDEE using Mifflin-St Jeor equation.
+2. Set daily calorie & macro targets tailored to goal:
+   - Weight Loss: TDEE - 500 kcal (40% Protein / 30% Carbs / 30% Fat)
+   - Muscle Gain: TDEE + 300 kcal (30% Protein / 45% Carbs / 25% Fat)
+   - Maintenance: TDEE (30% Protein / 40% Carbs / 30% Fat)
+3. For ${userDetails.experienceLevel}:
+   - Beginner: 3 training days (Full Body), rest days placed between training days
+   - Intermediate: 4 training days (Upper/Lower Split)
+   - Advanced: 5-6 training days (Push/Pull/Legs Split)
+4. Include RPE (Rate of Perceived Exertion 1-10) for each exercise.
+
+OUTPUT FORMAT (JSON Object ONLY):
 {
-  "summary": "2-line motivational introduction for the user",
+  "summary": "2-line motivational introduction tailored specifically to their goal of ${userDetails.fitnessGoal} at ${userDetails.workoutLocation}.",
   "workout_plan": [
-    { "day": "Day 1", "focus": "Upper Body", "exercises": [
-      {"name":"Push Ups","sets":3,"reps":"12-15","rest_seconds":60}
-    ]}
+    {
+      "day": "Day 1",
+      "focus": "Full Body Strength",
+      "exercises": [
+        { 
+          "name": "Bodyweight Squats", 
+          "sets": 3, 
+          "reps": "12-15", 
+          "rest_seconds": 60, 
+          "rest": "60s", 
+          "rpe": 7, 
+          "notes": "Keep chest elevated and push through heels" 
+        }
+      ]
+    }
   ],
   "diet_plan": [
-    { "meal": "Breakfast", "items": [
-      {"name":"Oatmeal with banana","calories":350,"protein_g":18}
-    ]}
+    {
+      "meal": "Breakfast",
+      "items": [
+        {
+          "name": "High-Protein Oatmeal with Greek Yogurt & Berries",
+          "calories": 450,
+          "protein_g": 35,
+          "protein": "35g"
+        }
+      ]
+    },
+    {
+      "meal": "Lunch",
+      "items": [
+        {
+          "name": "Grilled Chicken Breast with Quinoa & Roasted Greens",
+          "calories": 600,
+          "protein_g": 48,
+          "protein": "48g"
+        }
+      ]
+    },
+    {
+      "meal": "Dinner",
+      "items": [
+        {
+          "name": "Baked Salmon with Sweet Potato & Asparagus",
+          "calories": 550,
+          "protein_g": 40,
+          "protein": "40g"
+        }
+      ]
+    },
+    {
+      "meal": "Snack",
+      "items": [
+        {
+          "name": "Whey Protein Shake with Almonds",
+          "calories": 250,
+          "protein_g": 25,
+          "protein": "25g"
+        }
+      ]
+    }
   ],
   "motivation_tips": [
-    "Stay consistent and trust the process!",
-    "Small steps daily create big changes."
+    "Specific actionable tip 1 aligned with ${userDetails.fitnessGoal} and ${userDetails.experienceLevel} level",
+    "Specific actionable tip 2 for workout execution at ${userDetails.workoutLocation}",
+    "Specific actionable tip 3 for dietary consistency following ${userDetails.dietaryPreference || 'Standard'} preference"
+  ],
+  "recommendations": [
+    "Specific actionable tip 1 aligned with ${userDetails.fitnessGoal} and ${userDetails.experienceLevel} level",
+    "Specific actionable tip 2 for workout execution at ${userDetails.workoutLocation}",
+    "Specific actionable tip 3 for dietary consistency following ${userDetails.dietaryPreference || 'Standard'} preference"
   ]
 }`
 
-    // const response = await fetch(
-    //   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-    //   {
-    //     method: "POST",
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //       "x-goog-api-key": GEMINI_API_KEY || "",
-    //     },
-    //     body: JSON.stringify({
-    //       contents: [
-    //         {
-    //           parts: [
-    //             {
-    //               text: prompt,
-    //             },
-    //           ],
-    //         },
-    //       ],
-    //     }),
-    //   },
-    // )
-
+    // 4. Structured JSON Output from Mistral Client
+    const ai = getMistralClient()
     const response = await ai.chat.complete({
       model: "mistral-small-latest",
       messages: [{ role: "user", content: prompt }],
-    });
-    const data = response as any
-    const responseText = data.choices[0].message.content?.toString() || ""
+      responseFormat: { type: "json_object" },
+    })
 
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const plan = JSON.parse(jsonMatch[0])
+    const responseText = response.choices[0]?.message?.content?.toString() ?? ""
 
-      // Store in MongoDB
+    // Wrap JSON.parse — Mistral (especially smaller models under load) can return
+    // malformed or truncated JSON. An unhandled SyntaxError here becomes a
+    // cryptic 500; returning a 502 with a clear message is far better UX.
+    let plan: unknown
+    try {
+      plan = JSON.parse(responseText)
+    } catch {
+      console.error("[Plan API] Mistral returned non-JSON response:", responseText.slice(0, 200))
+      return NextResponse.json(
+        { error: "The AI returned an invalid response. Please try again." },
+        { status: 502 }
+      )
+    }
+
+    // 5. Store Plan in MongoDB
+    let planToReturn: unknown = plan
+    try {
       const { db } = await connectToDatabase()
       const plansCollection = db.collection("user_plans")
+      const { regenerationScope } = userDetails
+      const profileForStorage = {
+        age: userDetails.age,
+        gender: userDetails.gender,
+        height: userDetails.height,
+        weight: userDetails.weight,
+        fitnessGoal: userDetails.fitnessGoal,
+        experienceLevel: userDetails.experienceLevel,
+        workoutLocation: userDetails.workoutLocation,
+        dietaryPreference: userDetails.dietaryPreference,
+      }
+
+      if (regenerationScope === "diet") {
+        const existingPlanDoc = await plansCollection.findOne({ userId })
+        const generatedPlan = plan as Partial<GeneratePlanResponse>
+        const generatedDietPlan = generatedPlan.diet_plan
+        if (existingPlanDoc?.plan && Array.isArray(generatedDietPlan)) {
+          planToReturn = {
+            ...existingPlanDoc.plan,
+            diet_plan: generatedDietPlan,
+            recommendations: generatedPlan.recommendations ?? existingPlanDoc.plan.recommendations,
+            motivation_tips: generatedPlan.motivation_tips ?? existingPlanDoc.plan.motivation_tips,
+          }
+        }
+      }
 
       await plansCollection.updateOne(
         { userId },
         {
           $set: {
             userId,
-            formData: userDetails,
-            plan,
+            formData: { ...profileForStorage, userId },
+            plan: planToReturn,
             updatedAt: new Date(),
           },
           $setOnInsert: { createdAt: new Date() },
         },
         { upsert: true }
       )
-
-      console.log(`[Plan API] Stored plan for user: ${userId}`)
-
-      
-      // Cache Invalidation: clear all RAG responses for this user.
-      // The new plan changes the user's fitness context, so cached advice
-      // based on the old plan is now stale.
-      // Exercise/meal IMAGE cache is NOT cleared — posture form is immutable.
-      
-      const deleted = await clearPattern(CacheKeys.userRagPattern(userId))
-      if (deleted > 0) {
-        console.log(`[Plan API] Cleared ${deleted} stale RAG cache entries for user ${userId}`)
-      }
-
-      return NextResponse.json(plan)
+      logger.info({ userId }, '[Plan API] Stored plan in MongoDB')
+    } catch (dbErr) {
+      logger.warn({ err: toSafeErrorMessage(dbErr) }, '[Plan API] Database write skipped')
     }
 
-    throw new Error("Invalid response format")
-  } catch (error: any) {
-    console.error("Error generating plan:", error)
-    if (isQuotaError(error)) {
+    // 6. Purge Stale User RAG Cache
+    const deleted = await clearPattern(CacheKeys.userRagPattern(userId))
+    if (deleted > 0) {
+      logger.info({ userId, deleted }, '[Plan API] Purged stale RAG cache entries')
+    }
+
+    // 7. Zod Response Validation
+    const resValidation = validateResponse(GeneratePlanResponseSchema, planToReturn)
+    if (!resValidation.success) {
+      logger.warn({ issues: resValidation.error }, '[Plan API] Response schema mismatch')
+    }
+
+    return NextResponse.json(planToReturn, { status: 200 })
+
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, '[Plan API] Unhandled error')
+    const err = error as { status?: number; message?: string }
+    if (isQuotaExceededError(err?.status, err)) {
       return NextResponse.json(
         {
           error: "QUOTA_EXCEEDED",
@@ -138,6 +240,13 @@ Output JSON only in this format:
         { status: 429 }
       )
     }
-    return NextResponse.json({ error: "Failed to generate plan" }, { status: 500 })
+
+    return NextResponse.json(
+      {
+        error: "Failed to generate plan",
+        ...(process.env.NODE_ENV === 'development' && { details: toSafeErrorMessage(error) }),
+      },
+      { status: 500 }
+    )
   }
 }

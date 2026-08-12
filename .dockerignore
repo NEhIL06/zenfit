@@ -1,0 +1,58 @@
+# ZenFit — .dockerignore
+# Exclude files not needed in Docker image
+
+# Dependencies (reinstalled in container)
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+__tests__/
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Next.js build output (rebuilt in container)
+.next/
+out/
+build/
+
+# Source control
+.git/
+.gitignore
+.gitattributes
+
+# Development files
+.env
+.env.local
+.env.development
+.env.development.local
+*.log
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Documentation & planning
+*.md
+.planning/
+IMPROVEMENTS.md
+
+# Development tooling
+.eslintrc*
+.prettierrc*
+vitest.config.ts
+
+# Docker files (not needed inside image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Scripts (not needed in production)
+scripts/
+
+# Nginx config (managed by nginx container)
+nginx/

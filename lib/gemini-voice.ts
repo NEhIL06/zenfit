@@ -1,18 +1,24 @@
 import { handleApiResponse, showQuotaExceededToast } from "./error-handler"
+import { GenerateVoiceResponseSchema } from "./schemas"
 
 export async function generateVoice(text: string, voiceName = "Puck"): Promise<string> {
   try {
     const response = await fetch("/api/generate-voice", {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ text, voiceName }),
     })
 
-    const { data, isQuotaError, error } = await handleApiResponse(response, "voice narration")
+    const { data, isQuotaError, error } = await handleApiResponse(
+      response,
+      "voice narration",
+      GenerateVoiceResponseSchema
+    )
     if (isQuotaError) {
-      throw new Error(data?.message || "Voice narration quota exceeded")
+      throw new Error(error || "Voice narration quota exceeded")
     }
 
     if (!response.ok || error) {

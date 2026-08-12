@@ -1,7 +1,7 @@
 // lib/chroma.ts
 // NOTE: chromadb is imported LAZILY (dynamic import) at runtime only.
-// This prevents Turbopack from statically tracing into @chroma-core/default-embed
-// during the build, which causes a CJS/ESM module format conflict.
+// This prevents Turbopack from statically tracing optional Chroma embedder
+// packages during the build.
 
 import { embedText } from "./gemini";
 
@@ -10,19 +10,60 @@ export interface IEmbeddingFunction {
   generate(texts: string[]): Promise<number[][]>;
 }
 
+type ChromaMetadata = Record<string, string | number | boolean | null>;
+
+type ChromaCollectionLike = {
+  add(args: {
+    ids: string[];
+    documents: string[];
+    embeddings: number[][];
+    metadatas: ChromaMetadata[];
+  }): Promise<unknown>;
+  query(args: {
+    queryEmbeddings: number[][];
+    nResults: number;
+    include: string[];
+  }): Promise<{
+    documents?: (string | null)[][];
+    distances?: (number | null)[][];
+    metadatas?: (ChromaMetadata | null)[][];
+  }>;
+  delete(args: { ids: string[] }): Promise<unknown>;
+};
+
 // Lazy singleton — created on first use, never at module load time
-let _chromaClient: import("chromadb").CloudClient | null = null;
+type ChromaClientLike = {
+  getOrCreateCollection(args: {
+    name: string;
+    embeddingFunction?: IEmbeddingFunction;
+  }): Promise<ChromaCollectionLike>;
+};
+
+let _chromaClient: ChromaClientLike | null = null;
 
 async function getChromaClient() {
   if (!_chromaClient) {
-    const { CloudClient } = await import("chromadb");
-    _chromaClient = new CloudClient({
-      apiKey: process.env.CHROMA_API_KEY!,
-      tenant: process.env.CHROMA_TENANT_ID!,
-      database: process.env.CHROMA_DATABASE!,
-    });
+    const chromadb = await import("chromadb");
+    const chromaApiKey = process.env.CHROMA_API_KEY;
+    const chromaTenant = process.env.CHROMA_TENANT_ID || process.env.CHROMA_TENANT;
+    const chromaDatabase = process.env.CHROMA_DATABASE;
+
+    if (chromaApiKey && chromaTenant && chromaDatabase) {
+      _chromaClient = new chromadb.CloudClient({
+        apiKey: chromaApiKey,
+        tenant: chromaTenant,
+        database: chromaDatabase,
+      }) as unknown as ChromaClientLike;
+    } else {
+      const chromaServerUrl = new URL(process.env.CHROMA_SERVER_URL || "http://localhost:8000");
+      _chromaClient = new chromadb.ChromaClient({
+        host: chromaServerUrl.hostname,
+        port: chromaServerUrl.port ? Number(chromaServerUrl.port) : chromaServerUrl.protocol === "https:" ? 443 : 80,
+        ssl: chromaServerUrl.protocol === "https:",
+      }) as unknown as ChromaClientLike;
+    }
   }
-  return _chromaClient;
+  return _chromaClient as ChromaClientLike;
 }
 
 export class GeminiEmbeddingFunction implements IEmbeddingFunction {
@@ -50,7 +91,7 @@ export async function getCollection(name: string) {
       name,
       embeddingFunction: embedder,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     throw err;
   }
 }
@@ -63,7 +104,7 @@ export async function addToCollection(
   ids: string[],
   documents: string[],
   embeddings: number[][],
-  metadatas: any[]
+  metadatas: ChromaMetadata[]
 ) {
   const collection = await getCollection(name);
 

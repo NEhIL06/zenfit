@@ -5,9 +5,13 @@ import { motion } from "framer-motion"
 import Link from "next/link"
 import Navbar from "@/components/navbar"
 import Footer from "@/components/footer"
+import FilmStrip from "@/components/film-strip"
+import StickerWall from "@/components/sticker-wall"
+import LiveStatusClock from "@/components/live-status-clock"
 import { generateMotivationalQuote } from "@/lib/gemini"
-import { Dumbbell, Heart, TrendingUp, Users } from "lucide-react"
-import {Analytics} from '@vercel/analytics/next'
+import { Dumbbell, Heart, TrendingUp, Users, ArrowRight, Sparkles, ShieldCheck, Cpu, Database, ChevronRight } from "lucide-react"
+import { Analytics } from "@vercel/analytics/next"
+
 export default function Home() {
   const [quote, setQuote] = useState("")
   const [loading, setLoading] = useState(true)
@@ -19,7 +23,7 @@ export default function Home() {
         setQuote(generatedQuote)
       } catch (error) {
         console.error("Failed to generate quote:", error)
-        setQuote("The only bad workout is the one that did not happen.")
+        setQuote("Consistency is your greatest workout partner!")
       } finally {
         setLoading(false)
       }
@@ -29,185 +33,215 @@ export default function Home() {
 
   const features = [
     {
-      icon: <Dumbbell className="w-8 h-8" />,
-      title: "Personalized Workouts",
-      description: "AI-powered plans tailored to your fitness level and goals"
+      icon: <Dumbbell className="w-6 h-6 text-emerald-400" />,
+      title: "Self-RAG Workouts",
+      description: "LangGraph-orchestrated fitness plans tailored to your biometric metrics and goals."
     },
     {
-      icon: <Heart className="w-8 h-8" />,
-      title: "Nutrition Guidance",
-      description: "Custom diet plans designed for your body and lifestyle"
+      icon: <Heart className="w-6 h-6 text-teal-400" />,
+      title: "Targeted Macros & Diet",
+      description: "Custom nutrition routines generated dynamically based on dietary preferences."
     },
     {
-      icon: <TrendingUp className="w-8 h-8" />,
-      title: "Track Progress",
-      description: "Monitor your achievements and celebrate milestones"
+      icon: <TrendingUp className="w-6 h-6 text-emerald-400" />,
+      title: "Milestone Tracking",
+      description: "Log progress, compute BMI/BMR metrics, and track transformation over time."
     },
     {
-      icon: <Users className="w-8 h-8" />,
-      title: "AI Coach Support",
-      description: "Voice guidance and motivation throughout your journey"
+      icon: <Users className="w-6 h-6 text-teal-400" />,
+      title: "Multimodal AI Coach",
+      description: "Voice-guided audio advice, image pose checks, and deterministic Redis caching."
+    }
+  ]
+
+  const architectureHighlights = [
+    {
+      title: "ChromaDB Vector Store",
+      desc: "Dense semantic retrieval with bge-base-en-v1.5 embeddings for exercise science papers.",
+      tag: "Vector Search"
+    },
+    {
+      title: "Cohere Reranking",
+      desc: "Cross-encoder scoring ensures only top relevant passages feed into the LLM context window.",
+      tag: "Precision Rank"
+    },
+    {
+      title: "Zero-Cost Intent Router",
+      desc: "Instant regex filter bypasses expensive LLM calls for general greetings and simple queries.",
+      tag: "Latency Saver"
+    },
+    {
+      title: "httpOnly JWT Security",
+      desc: "Bcrypt hashed credentials and encrypted HTTP cookies eliminate vulnerable localStorage sessions.",
+      tag: "Production Auth"
     }
   ]
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans relative overflow-x-hidden">
       <Navbar />
       <Analytics />
 
-      {/* Hero Section with Background Image */}
-      <section className="relative min-h-screen flex items-center justify-center px-4 pt-20">
-        {/* Background Image with Overlay */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=2070"
-            alt="Fitness motivation"
-            className="w-full h-full object-cover opacity-20 dark:opacity-30"
-          />
-          <div className="absolute inset-0 bg-linear-to-b from-white/80 via-white/60 to-white dark:from-black/70 dark:via-black/50 dark:to-black"></div>
-        </div>
+      {/* Top Film Strip Gallery ("Moments on Film" - Design Inspiration 1) */}
+      <div className="pt-24 pb-4 bg-slate-950/90 border-b border-slate-900">
+        <FilmStrip />
+      </div>
 
-        {/* Content */}
+      {/* Hero Section */}
+      <section className="relative py-16 sm:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+        {/* Ambient Glow background */}
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-emerald-500/10 rounded-full blur-[160px] pointer-events-none" />
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="relative z-10 max-w-6xl mx-auto text-center"
+          transition={{ duration: 0.7 }}
+          className="relative z-10 space-y-8"
         >
-          <motion.h1
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl md:text-7xl lg:text-8xl font-bold mb-8 text-black dark:text-white leading-tight"
-          >
-            Your <span className="text-[#2D5C44] dark:text-[#10B981]">Fitness Journey</span>
-            <br />
-            Starts <span className="text-[#2D5C44] dark:text-[#10B981]">Here</span>
-          </motion.h1>
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 text-xs font-bold tracking-widest uppercase text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-4 py-2 rounded-full shadow-lg shadow-emerald-950/40">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>AI Fitness Architecture • Self-RAG Powered</span>
+          </div>
 
-          {/* Motivational Quote */}
+          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-tight">
+            Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500">Fitness Journey</span>
+            <br />
+            Driven By <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-emerald-400">Intelligent RAG</span>
+          </h1>
+
+          <p className="text-slate-400 text-base sm:text-xl max-w-2xl mx-auto leading-relaxed font-normal">
+            Precision workout programs, customized macro nutrition, and real-time multimodal AI guidance backed by vector similarity search.
+          </p>
+
+          {/* Dynamic Motivation Box */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, delay: 0.3 }}
-            className="relative bg-linear-to-r from-[#2D5C44] to-[#1a3d2e] dark:from-[#10B981] dark:to-[#059669] text-white rounded-3xl p-8 md:p-12 mb-12 shadow-2xl max-w-4xl mx-auto backdrop-blur-sm"
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="max-w-3xl mx-auto bg-gradient-to-r from-emerald-950/80 via-slate-900 to-teal-950/80 border border-emerald-800/40 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden backdrop-blur-xl"
           >
-            <div className="absolute -top-6 -left-6 w-12 h-12 bg-[#10B981] dark:bg-[#2D5C44] rounded-full flex items-center justify-center text-3xl">
-              💪
+            <div className="text-xs font-extrabold uppercase tracking-widest text-emerald-400 mb-2 flex items-center justify-center gap-2">
+              <Sparkles className="w-4 h-4" /> Daily AI Motivation
             </div>
             {loading ? (
-              <p className="text-lg md:text-2xl italic">Loading your inspiration...</p>
+              <p className="text-slate-400 text-sm animate-pulse">Generating inspiration...</p>
             ) : (
-              <p className="text-lg md:text-2xl italic font-light leading-relaxed">&ldquo;{quote}&rdquo;</p>
+              <p className="text-lg sm:text-xl italic font-serif text-slate-200 leading-relaxed">
+                &ldquo;{quote}&rdquo;
+              </p>
             )}
           </motion.div>
 
-          {/* Description */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, delay: 0.5 }}
-            className="text-xl md:text-2xl text-gray-700 dark:text-gray-300 mb-12 max-w-3xl mx-auto leading-relaxed"
-          >
-            Transform your body and mind with AI-powered fitness coaching. 
-            Get personalized workouts, nutrition plans, and real-time guidance.
-          </motion.p>
-
-          {/* CTA Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.7 }}
-            className="flex flex-col sm:flex-row gap-6 justify-center items-center"
-          >
+          {/* Action CTAs */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4">
             <Link href="/signup">
-              <button className="px-10 py-5 bg-linear-to-r from-[#10B981] to-[#059669] text-white rounded-xl font-bold text-lg hover:shadow-2xl hover:scale-105 transition-all duration-300 shadow-lg">
-                Start Free Trial
-              </button>
-            </Link>
-            <Link href="/login">
-              <button className="px-10 py-5 border-2 border-[#2D5C44] dark:border-[#10B981] text-[#2D5C44] dark:text-[#10B981] rounded-xl font-bold text-lg hover:bg-[#2D5C44] hover:text-white dark:hover:bg-[#10B981] dark:hover:text-black transition-all duration-300 hover:scale-105">
-                Sign In
-              </button>
-            </Link>
-          </motion.div>
-        </motion.div>
-      </section>
-
-      {/* Features Section */}
-      <section className="relative py-24 px-4 bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <h2 className="text-4xl md:text-5xl font-bold text-black dark:text-white mb-4">
-              Why Choose <span className="text-[#2D5C44] dark:text-[#10B981]">Zenletics</span>?
-            </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400">
-              Everything you need to achieve your fitness goals
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {features.map((feature, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-105"
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 rounded-2xl font-black text-base shadow-xl shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-300 transition flex items-center gap-2 cursor-pointer"
               >
-                <div className="text-[#10B981] dark:text-[#2D5C44] mb-4">
-                  {feature.icon}
-                </div>
-                <h3 className="text-xl font-bold text-black dark:text-white mb-3">
-                  {feature.title}
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400">
-                  {feature.description}
-                </p>
-              </motion.div>
-            ))}
+                Start Free Trial
+                <ArrowRight className="w-5 h-5" />
+              </motion.button>
+            </Link>
+
+            <Link href="/login">
+              <button className="px-8 py-4 bg-slate-900 border border-slate-800 text-slate-200 rounded-2xl font-bold text-base hover:bg-slate-800 hover:text-white transition cursor-pointer">
+                Sign In to Dashboard
+              </button>
+            </Link>
           </div>
+        </motion.div>
+      </section>
+
+      {/* Live Analog Clock & Operational Status Component (Design Inspiration 1) */}
+      <section className="py-8 px-4 sm:px-6 max-w-7xl mx-auto">
+        <LiveStatusClock />
+      </section>
+
+      {/* Interactive Sticker Wall Ticker (Design Inspiration 2) */}
+      <StickerWall />
+
+      {/* Core Features Grid */}
+      <section id="features" className="py-20 px-4 sm:px-6 max-w-7xl mx-auto space-y-12">
+        <div className="text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-xs font-bold tracking-widest uppercase text-emerald-400">
+            <Cpu className="w-4 h-4" /> Capabilities
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+            Why Train With <span className="text-emerald-400">Zenletics</span>?
+          </h2>
+          <p className="text-slate-400 text-sm sm:text-base max-w-lg mx-auto">
+            Combining machine learning retrieval pipelines with human-centric physical coaching.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {features.map((item, index) => (
+            <motion.div
+              key={index}
+              whileHover={{ y: -6 }}
+              className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl hover:border-emerald-500/40 transition-all group"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center mb-4 group-hover:scale-110 transition">
+                {item.icon}
+              </div>
+              <h3 className="text-lg font-extrabold text-white mb-2 group-hover:text-emerald-400 transition">
+                {item.title}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                {item.description}
+              </p>
+            </motion.div>
+          ))}
         </div>
       </section>
 
-      {/* Transformation Section with Background Image */}
-      <section className="relative py-32 px-4 overflow-hidden">
-        <div className="absolute inset-0 z-0">
-          <img
-            src="https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=2070"
-            alt="Gym transformation"
-            className="w-full h-full object-cover opacity-15 dark:opacity-10"
-          />
-          <div className="absolute inset-0 bg-linear-to-r from-white/90 via-white/80 to-white/90 dark:from-black/90 dark:via-black/80 dark:to-black/90"></div>
+      {/* Deep Architecture Grid */}
+      <section id="architecture" className="py-20 px-4 sm:px-6 max-w-7xl mx-auto bg-slate-900/40 border border-slate-800/80 rounded-3xl space-y-12 my-12">
+        <div className="text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-xs font-bold tracking-widest uppercase text-teal-400">
+            <Database className="w-4 h-4" /> Technical Blueprint
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+            Verified <span className="text-teal-400">RAG Engine</span> Specs
+          </h2>
+          <p className="text-slate-400 text-sm sm:text-base max-w-xl mx-auto">
+            Engineered with strict non-diplomatic benchmarks and modular multi-provider fallbacks.
+          </p>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="relative z-10 max-w-4xl mx-auto text-center"
-        >
-          <h2 className="text-4xl md:text-6xl font-bold text-black dark:text-white mb-6">
-            Ready to <span className="text-[#2D5C44] dark:text-[#10B981]">Transform</span>?
-          </h2>
-          <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300 mb-12 leading-relaxed">
-            Join thousands of people who have already started their fitness journey with Zenletics.
-            Your transformation starts with a single step.
-          </p>
-          <Link href="/signup">
-            <button className="px-12 py-6 bg-linear-to-r from-[#2D5C44] to-[#1a3d2e] dark:from-[#10B981] dark:to-[#059669] text-white rounded-xl font-bold text-xl hover:shadow-2xl hover:scale-105 transition-all duration-300 shadow-xl">
-              Begin Your Journey Today
-            </button>
-          </Link>
-        </motion.div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {architectureHighlights.map((arch, index) => (
+            <div key={index} className="bg-slate-950 border border-slate-800/80 rounded-2xl p-6 space-y-3">
+              <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-950 border border-emerald-800/50 text-emerald-400 px-2.5 py-1 rounded-md">
+                {arch.tag}
+              </span>
+              <h4 className="text-base font-extrabold text-white">{arch.title}</h4>
+              <p className="text-xs text-slate-400 leading-relaxed">{arch.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Final Call To Action */}
+      <section className="py-20 px-4 text-center max-w-4xl mx-auto space-y-6">
+        <h2 className="text-3xl sm:text-5xl font-black text-white">
+          Ready to Start Your <span className="text-emerald-400">AI Transformation</span>?
+        </h2>
+        <p className="text-slate-400 text-base max-w-lg mx-auto">
+          Generate your personalized workout split and meal targets in under 15 seconds.
+        </p>
+        <Link href="/signup">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="px-10 py-5 bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black text-lg rounded-2xl shadow-xl shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-300 transition inline-flex items-center gap-3 cursor-pointer"
+          >
+            Create Your Plan Now <ChevronRight className="w-5 h-5" />
+          </motion.button>
+        </Link>
       </section>
 
       <Footer />

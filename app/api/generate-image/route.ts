@@ -1,29 +1,29 @@
 import { NextResponse } from "next/server"
 import { getCache, setCache, CacheKeys, TTL, normalizeKey } from "@/lib/cache"
+import { isQuotaExceededError, toSafeErrorMessage } from "@/lib/error-handler"
+import { GenerateImageRequestSchema, GenerateImageResponseSchema, validateRequest, validateResponse } from "@/lib/schemas"
+import { getCuratedImageUrl } from "@/lib/image-resolver"
+import { requireAuthUser } from "@/lib/api-security"
+import { checkRateLimit } from "@/lib/rate-limiter"
+import { logger } from "@/lib/logger"
 
-// Set ENABLE_GEMINI_IMAGE=true in .env when you have a paid Gemini API quota
+const NANOBANANA_API_KEY = process.env.NANOBANANA_API_KEY
 const USE_GEMINI = process.env.ENABLE_GEMINI_IMAGE === "true"
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 const POLLINATIONS_API_KEY = process.env.POLLINATIONS_API_KEY
-const POLLINATIONS_IMAGE_MODEL = process.env.POLLINATIONS_IMAGE_MODEL || "flux"
+const POLLINATIONS_IMAGE_MODEL = process.env.POLLINATIONS_IMAGE_MODEL || "turbo"
 
-function isQuotaError(e: any): boolean {
-  const msg = `${e?.message || ""} ${e?.status || ""} ${JSON.stringify(e || {})}`.toLowerCase()
-  return (
-    e?.status === 429 ||
-    msg.includes("429") ||
-    msg.includes("quota") ||
-    msg.includes("rate limit") ||
-    msg.includes("resource_exhausted") ||
-    msg.includes("too many requests")
-  )
+type ImageGenerationResponse = {
+  images?: Array<{ url?: string }>
 }
 
-/**
- * Generate a deterministic numeric seed from a string.
- * Same exercise name always produces the same seed → same Pollinations image URL.
- * This makes the URL itself stable and cacheable without storing bytes.
- */
+type GeminiImagePart = {
+  inlineData?: {
+    data?: string
+    mimeType?: string
+  }
+}
+
 function deterministicSeed(input: string): number {
   const normalized = normalizeKey(input)
   let hash = 0
@@ -33,35 +33,48 @@ function deterministicSeed(input: string): number {
   return hash % 1_000_000
 }
 
-/**
- * Build a stable Pollinations image URL.
- * Uses model + seed so the same prompt always maps to the same URL.
- */
 function buildPollinationsUrl(prompt: string, seed: number): string {
   const encoded = encodeURIComponent(prompt)
-  return `https://gen.pollinations.ai/image/${encoded}?model=${POLLINATIONS_IMAGE_MODEL}&seed=${seed}&width=512&height=512&nologo=true`
+  return `https://image.pollinations.ai/prompt/${encoded}?model=${POLLINATIONS_IMAGE_MODEL}&seed=${seed}&width=512&height=512&nologo=true`
 }
 
 export async function POST(request: Request) {
   try {
-    const { name, type } = await request.json()
+    const auth = await requireAuthUser(request)
+    if (!auth.ok) return auth.response
 
-    if (!name || !type) {
-      return NextResponse.json({ error: "name and type are required" }, { status: 400 })
+    const body = await request.json()
+
+    // 1. Zod Request Validation
+    const validation = validateRequest(GenerateImageRequestSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
-    // 1. Check Redis global image cache
+    const { name, type } = validation.data
+    const rateLimit = await checkRateLimit(`image_${auth.user.userId}`)
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        { error: "QUOTA_EXCEEDED", message: "Image generation rate limit exceeded. Please wait a minute." },
+        { status: 429 }
+      )
+    }
+
+    // 2. Check Redis global image cache
     const cacheKey = type === "exercise"
       ? CacheKeys.exerciseImage(name)
       : CacheKeys.mealImage(name)
 
     const cachedUrl = await getCache<string>(cacheKey)
     if (cachedUrl) {
-      return NextResponse.json({ imageData: cachedUrl })
+      const cachedResponse = { imageData: cachedUrl, provider: "cache" }
+      return NextResponse.json(cachedResponse)
     }
 
-    
-    // 2. Build prompt
+    // 3. Instant Curated Dynamic Image Fallback URL
+    const curatedUrl = getCuratedImageUrl(name, type)
+
+    // 4. Build prompt
     let prompt: string
     if (type === "exercise") {
       prompt = `Realistic fitness photograph of a person performing ${name}, proper form, gym setting, professional lighting, motivational, high quality`
@@ -69,7 +82,43 @@ export async function POST(request: Request) {
       prompt = `Realistic food photography of ${name}, appetizing presentation, professional lighting, white plate on neutral background, clean food style`
     }
 
-    // 3. Gemini path (if enabled and quota available)
+    // 5. Primary Provider: Nanobanana API (if configured)
+    if (NANOBANANA_API_KEY) {
+      try {
+        logger.info({ userId: auth.user.userId, type }, "[generate-image] Calling primary provider")
+        const response = await fetch("https://api.nanobanana.ai/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${NANOBANANA_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt,
+            width: 1024,
+            height: 1024,
+            num_inference_steps: 30,
+            guidance_scale: 7.5,
+          }),
+          signal: AbortSignal.timeout(3000), // 3s fast timeout
+        })
+
+        if (response.ok) {
+          const data = await response.json() as ImageGenerationResponse
+          const imageUrl = data.images?.[0]?.url
+          if (imageUrl) {
+            await setCache(cacheKey, imageUrl, TTL.IMAGE)
+            const payload = { imageData: imageUrl, provider: "nanobanana" }
+            return NextResponse.json(payload)
+          }
+        } else {
+          logger.warn({ status: response.status }, "[generate-image] Nanobanana error")
+        }
+      } catch (e: unknown) {
+        logger.warn({ err: toSafeErrorMessage(e) }, "[generate-image] Nanobanana failed, triggering fallback chain")
+      }
+    }
+
+    // 6. Secondary Provider: Gemini Image API (if enabled)
     if (USE_GEMINI && GEMINI_API_KEY) {
       try {
         const { GoogleGenAI } = await import("@google/genai")
@@ -82,64 +131,59 @@ export async function POST(request: Request) {
 
         const parts = response?.candidates?.[0]?.content?.parts
         const imagePart = Array.isArray(parts)
-          ? parts.find((p: any) => p.inlineData?.data)
+          ? parts.find((p: GeminiImagePart) => p.inlineData?.data)
           : null
 
         if (imagePart?.inlineData?.data) {
           const mime = imagePart.inlineData.mimeType || "image/jpeg"
           const dataUri = `data:${mime};base64,${imagePart.inlineData.data}`
 
-          // Cache the Gemini result as a data URI
           await setCache(cacheKey, dataUri, TTL.IMAGE)
-
-          return NextResponse.json({ imageData: dataUri })
+          return NextResponse.json({ imageData: dataUri, provider: "gemini" })
         }
-      } catch (e: any) {
-        console.error("[generate-image] Gemini error:", e?.message)
-        if (isQuotaError(e)) {
-          return NextResponse.json(
-            {
-              error: "QUOTA_EXCEEDED",
-              message: "Gemini Image generation quota exceeded. Falling back to Pollinations.",
-            },
-            { status: 429 }
-          )
-        }
-        // Non-quota error → fall through to Pollinations
+      } catch (e: unknown) {
+        logger.error({ err: toSafeErrorMessage(e) }, "[generate-image] Gemini error")
       }
     }
 
-    // 4. Pollinations authenticated API fallback
-    //    We use a deterministic seed so the URL is stable for the same input.
-    //    We cache the URL string only (~200 bytes) — not the image bytes.
-    
+    // 7. Fast Provider: Pollinations AI with 2-second timeout
     const seed = deterministicSeed(name)
-    const imageUrl = buildPollinationsUrl(prompt, seed)
+    const pollinationsUrl = buildPollinationsUrl(prompt, seed)
 
-    if (POLLINATIONS_API_KEY) {
-      // Verify the image is reachable with auth (HEAD request to validate)
-      try {
-        const headRes = await fetch(imageUrl, {
-          method: "HEAD",
-          headers: { Authorization: `Bearer ${POLLINATIONS_API_KEY}` },
-          signal: AbortSignal.timeout(5000),
-        })
-        if (!headRes.ok && headRes.status !== 405) {
-          console.warn("[generate-image] Pollinations HEAD check failed:", headRes.status)
-        }
-      } catch {
-        // HEAD timeout is fine — the GET URL is still valid
+    let finalImageUrl = curatedUrl
+
+    try {
+      const pRes = await fetch(pollinationsUrl, {
+        method: "HEAD",
+        headers: POLLINATIONS_API_KEY ? { Authorization: `Bearer ${POLLINATIONS_API_KEY}` } : {},
+        signal: AbortSignal.timeout(2000), // 2-second max wait
+      })
+      if (pRes.ok) {
+        finalImageUrl = pollinationsUrl
       }
+    } catch {
+      // Fast fallback to dish/exercise curated URL
+      finalImageUrl = curatedUrl
     }
 
-    // Cache the stable URL for 30 days
-    await setCache(cacheKey, imageUrl, TTL.IMAGE)
+    await setCache(cacheKey, finalImageUrl, TTL.IMAGE)
 
-    return NextResponse.json({ imageData: imageUrl })
+    const responsePayload = { imageData: finalImageUrl, provider: finalImageUrl === curatedUrl ? "curated_cdn" : "pollinations" }
 
-  } catch (error: any) {
-    console.error("[generate-image] Error:", error)
-    if (isQuotaError(error)) {
+    // Zod Response Validation
+    const resValidation = validateResponse(GenerateImageResponseSchema, responsePayload)
+    if (!resValidation.success) {
+      logger.warn({ issues: resValidation.error }, "[generate-image] Response validation warning")
+    }
+
+    return NextResponse.json(responsePayload)
+
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, "[generate-image] Error")
+    const status = typeof error === "object" && error !== null && "status" in error
+      ? (error as { status?: number }).status
+      : undefined
+    if (isQuotaExceededError(status, error as Record<string, unknown>)) {
       return NextResponse.json(
         {
           error: "QUOTA_EXCEEDED",
@@ -149,7 +193,7 @@ export async function POST(request: Request) {
       )
     }
     return NextResponse.json(
-      { error: "Internal Server Error", details: error?.message || "Failed to generate image" },
+      { error: "Internal Server Error" },
       { status: 500 }
     )
   }

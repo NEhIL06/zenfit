@@ -1,16 +1,22 @@
 import { handleApiResponse, showQuotaExceededToast } from "./error-handler"
+import { GenerateImageResponseSchema } from "./schemas"
 
 export async function generateExerciseImage(exerciseName: string): Promise<string> {
   try {
     const response = await fetch("/api/generate-image", {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ name: exerciseName, type: "exercise" }),
     })
 
-    const { data, isQuotaError, error } = await handleApiResponse(response, `exercise image (${exerciseName})`)
+    const { data, isQuotaError, error } = await handleApiResponse(
+      response,
+      `exercise image (${exerciseName})`,
+      GenerateImageResponseSchema
+    )
     if (isQuotaError || error) {
       if (!isQuotaError && error) {
         showQuotaExceededToast(error, `exercise image (${exerciseName})`)
@@ -30,13 +36,18 @@ export async function generateMealImage(mealName: string): Promise<string> {
   try {
     const response = await fetch("/api/generate-image", {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ name: mealName, type: "meal" }),
     })
 
-    const { data, isQuotaError, error } = await handleApiResponse(response, `meal image (${mealName})`)
+    const { data, isQuotaError, error } = await handleApiResponse(
+      response,
+      `meal image (${mealName})`,
+      GenerateImageResponseSchema
+    )
     if (isQuotaError || error) {
       if (!isQuotaError && error) {
         showQuotaExceededToast(error, `meal image (${mealName})`)

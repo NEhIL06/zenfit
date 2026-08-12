@@ -1,110 +1,96 @@
-import { Mistral } from "@mistralai/mistralai";
-import { handleApiResponse, showQuotaExceededToast } from "./error-handler";
+import { getMistralClient } from "./mistral"
+import { handleApiResponse, showQuotaExceededToast } from "./error-handler"
+import {
+  GenerateQuoteResponseSchema,
+  GenerateTextResponseSchema,
+  GeneratePlanResponseSchema,
+  PersonalizedQuoteResponseSchema,
+  type GeneratePlanResponse,
+} from "./schemas"
 
-const MODEL = "sentence-transformers/all-MiniLM-L6-v2";
-
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
-const HF_API_KEY = process.env.HF_API_KEY;
-
+/**
+ * Generate a motivational fitness quote.
+ * BUG-03 fix: Added credentials: 'include' so the JWT cookie is sent with the request.
+ * Without it, middleware returns 401 and the hardcoded fallback is always used.
+ */
 export async function generateMotivationalQuote(): Promise<string> {
   try {
     const response = await fetch("/api/generate-quote", {
       method: "GET",
+      credentials: "include", // Required: sends httpOnly JWT cookie to middleware
     })
 
-    const { data, isQuotaError } = await handleApiResponse(response, "motivational quote")
+    const { data, isQuotaError } = await handleApiResponse(
+      response,
+      "motivational quote",
+      GenerateQuoteResponseSchema
+    )
     if (isQuotaError) return "Your fitness journey starts today."
 
     return data?.quote || "Your fitness journey starts today."
   } catch (error) {
-    console.error("Error generating quote:", error)
+    console.error("[AI] generateMotivationalQuote error:", error)
     return "Your fitness journey starts today."
   }
 }
 
+/**
+ * Generate text via the AI pipeline.
+ * Client-side: routes through /api/generateText (JWT-protected proxy).
+ * Server-side: calls Mistral directly.
+ */
 export async function generateText(prompt: string, maxTokens = 512): Promise<string> {
-  if (typeof window === 'undefined') {
-    return generateTextServer(prompt, maxTokens);
+  if (typeof window === "undefined") {
+    return generateTextServer(prompt, maxTokens)
   }
 
   try {
     const res = await fetch("/api/generateText", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, maxTokens }),
-    });
+    })
 
-    const { data, isQuotaError } = await handleApiResponse(res, "text generation")
+    const { data, isQuotaError } = await handleApiResponse(
+      res,
+      "text generation",
+      GenerateTextResponseSchema
+    )
     if (isQuotaError) return ""
 
-    return data?.text || "";
+    return data?.text || ""
   } catch (err) {
-    console.error("[Gemini] generateText error:", err);
-    return "";
+    console.error("[AI] generateText error:", err)
+    return ""
   }
 }
 
+/**
+ * Server-side text generation — calls Mistral directly (no HTTP hop).
+ */
 export async function generateTextServer(prompt: string, maxTokens = 512): Promise<string> {
   try {
-    const ai = new Mistral({
-      apiKey: MISTRAL_API_KEY || "",
-    });
-
-    // const res = await AI.models.generateContent({
-    //   model: "gemini-2.5-flash",
-    //   contents: [{ parts: [{ text: prompt }] }],
-    //   config: {
-    //     maxOutputTokens: maxTokens,
-    //   }
-    // });
-
+    const ai = getMistralClient()
     const res = await ai.chat.complete({
       model: "mistral-small-latest",
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        }
-      ],
-      maxTokens: maxTokens,
-    });
+      messages: [{ role: "user", content: prompt }],
+      maxTokens,
+    })
 
-    const text = res.choices[0].message.content?.toString() || "";
-    return text || "";
+    return res.choices[0].message.content?.toString() || ""
   } catch (err) {
-    console.error("[Gemini] generateTextServer error:", err);
-    return "";
+    console.error("[AI] generateTextServer error:", err)
+    return ""
   }
 }
 
+/**
+ * Analyze a base64-encoded image using Mistral vision.
+ */
 export async function analyzeImageBase64(imageBase64: string): Promise<string> {
   try {
-    // const response = await fetch(
-    //   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-    //   {
-    //     method: "POST",
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //       "x-goog-api-key": GEMINI_API_KEY || "",
-    //     },
-    //     body: JSON.stringify({
-    //       contents: [
-    //         {
-    //           parts: [
-    //             {
-    //               text: "Generate one short original motivational quote about fitness, discipline, or self-improvement (1-2 lines max). Return only the quote, no attribution.",
-    //             },
-    //             { inlineData: { mimeType: "image/jpeg", data: imageBase64 } }
-    //           ],
-    //         },
-    //       ],
-    //     }),
-    //   },
-    // )
-
-    const ai = new Mistral({
-      apiKey: MISTRAL_API_KEY || "",
-    });
+    const ai = getMistralClient()
 
     const response = await ai.chat.complete({
       model: "mistral-small-latest",
@@ -112,52 +98,77 @@ export async function analyzeImageBase64(imageBase64: string): Promise<string> {
         {
           role: "user",
           content: [
-            { type: "text", text: "Analyze the following image and provide insights related to fitness and health."  },
+            {
+              type: "text",
+              text: "Analyze the following image and provide insights related to fitness and health.",
+            },
             {
               type: "image_url",
               imageUrl: "data:image/jpeg;base64," + imageBase64,
             },
           ],
-        }
+        },
       ],
-    });
-
-    const result = response as any;
-    const text = result.choices[0].message.content?.toString();
-    return text?.trim() || "Could not analyze the image.";
-  } catch (err) {
-    console.error("[Gemini] analyzeImageBase64 error:", err);
-    return "Image analysis failed.";
-  }
-}
-
-export async function generateFitnessPlan(userDetails: any): Promise<any> {
-  try {
-    const response = await fetch("/api/generate-plan", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(userDetails),
     })
 
-    const { data, isQuotaError, error } = await handleApiResponse(response, "fitness plan")
-    if (isQuotaError) {
-      throw new Error(data?.message || "Fitness plan generation quota exceeded")
-    }
-
-    if (!response.ok || error) {
-      throw new Error(error || "Failed to generate fitness plan")
-    }
-
-    return data
-  } catch (error) {
-    console.error("Error generating plan:", error)
-    throw error
+    return response.choices[0].message.content?.toString()?.trim() || "Could not analyze the image."
+  } catch (err) {
+    console.error("[AI] analyzeImageBase64 error:", err)
+    return "Image analysis failed."
   }
 }
 
+/**
+ * Generate a fitness plan by calling the backend API.
+ * Validates the response against GeneratePlanResponseSchema.
+ */
+export async function generateFitnessPlan(userDetails: Record<string, unknown>): Promise<GeneratePlanResponse> {
+  const response = await fetch("/api/generate-plan", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(userDetails),
+  })
+
+  const { data, isQuotaError, error } = await handleApiResponse(
+    response,
+    "fitness plan",
+    GeneratePlanResponseSchema
+  )
+
+  if (isQuotaError) {
+    throw new Error(error || "Fitness plan generation quota exceeded")
+  }
+  if (!response.ok || error) {
+    throw new Error(error || "Failed to generate fitness plan")
+  }
+
+  return data as GeneratePlanResponse
+}
+
+/**
+ * Embed text using the HuggingFace inference API.
+ *
+ * BUG-04 fix: Added server-side guard. process.env.HF_API_KEY is not exposed
+ * to the browser (not NEXT_PUBLIC_-prefixed). Calling this client-side would
+ * send `Bearer undefined` to HuggingFace and silently fail.
+ *
+ * This function must only run server-side. If you need embeddings client-side,
+ * create a /api/embed route and proxy through it.
+ */
 export async function embedText(text: string): Promise<number[]> {
+  if (typeof window !== "undefined") {
+    // Client-side call: HF_API_KEY is not available in the browser.
+    // Route through /api/embed if you need client-side embeddings.
+    console.warn("[AI] embedText called client-side — returning empty. Use server-side context.")
+    return []
+  }
+
+  if (!process.env.HF_API_KEY) {
+    console.warn("[AI] HF_API_KEY is missing; embeddings are disabled.")
+    return []
+  }
+
   try {
     const response = await fetch(
       "https://router.huggingface.co/hf-inference/models/BAAI/bge-base-en-v1.5/pipeline/feature-extraction",
@@ -169,40 +180,51 @@ export async function embedText(text: string): Promise<number[]> {
         },
         body: JSON.stringify({ inputs: text }),
       }
-    );
+    )
 
     if (response.status === 429) {
       showQuotaExceededToast("HuggingFace embedding API rate limit reached.", "text embedding")
       return []
     }
 
-    const raw = await response.text();
-    const json = JSON.parse(raw);
+    if (!response.ok) {
+      console.error("[AI] embedText HF error:", response.status, await response.text())
+      return []
+    }
 
-    const embedding = Array.isArray(json[0]) ? json[0] : json;
-    return embedding;
+    const raw = await response.text()
+    const json = JSON.parse(raw)
+    const embedding = Array.isArray(json[0]) ? json[0] : json
+    return embedding
   } catch (err) {
-    console.error("[embedText ERROR]", err);
-    return [];
+    console.error("[AI] embedText error:", err)
+    return []
   }
 }
 
-export async function generatePersonalizedQuote(userData: any): Promise<string> {
+/**
+ * Generate a personalized motivational quote based on user data.
+ * Validates the response against PersonalizedQuoteResponseSchema.
+ */
+export async function generatePersonalizedQuote(userData: Record<string, unknown>): Promise<string> {
   try {
     const response = await fetch("/api/personalized-quote", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(userData),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userProfile: userData }),
     })
 
-    const { data, isQuotaError } = await handleApiResponse(response, "personalized quote")
+    const { data, isQuotaError } = await handleApiResponse(
+      response,
+      "personalized quote",
+      PersonalizedQuoteResponseSchema
+    )
     if (isQuotaError) return "You are stronger than you think!"
 
     return data?.quote || "You are stronger than you think!"
   } catch (error) {
-    console.error("[v0] Error generating personalized quote:", error)
+    console.error("[AI] generatePersonalizedQuote error:", error)
     throw error
   }
 }

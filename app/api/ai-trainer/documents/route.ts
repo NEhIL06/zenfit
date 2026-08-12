@@ -1,43 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
-import { embedText } from "@/lib/gemini";
+import { requireAuthUser } from "@/lib/api-security";
 import { getCollection } from "@/lib/chroma";
+import { toSafeErrorMessage } from "@/lib/error-handler";
+import { embedText } from "@/lib/gemini";
+import { logger } from "@/lib/logger";
+
+const ALLOWED_TYPES = ["text/plain", "text/markdown"];
+const MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuthUser(req);
+    if (!auth.ok) return auth.response;
+
+    const userId = auth.user.userId;
     const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const userId = formData.get("userId") as string;
+    const file = formData.get("file") as File | null;
     const isUserSpecific = formData.get("userSpecific") === "true";
 
     if (!file) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
     }
 
-    if (!userId) {
+    if (!isUserSpecific) {
       return NextResponse.json(
-        { error: "Unauthorized — userId required" },
-        { status: 401 }
+        { error: "Global document uploads require an admin workflow." },
+        { status: 403 }
       );
     }
 
-    console.log(`
-[Docs API] Upload request:
-  file: ${file.name}
-  user: ${userId}
-  scope: ${isUserSpecific ? "USER" : "GLOBAL"}
-    `);
-
-    // Read file contents
-    let text = await file.text();
-
-    // PDF Placeholder
-    if (file.type === "application/pdf") {
-      console.warn("[Docs API] PDF detected — implement PDF extraction later.");
-      // TODO: pdf-parse or pdf.js pipeline
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return NextResponse.json(
+        { error: "Unsupported file type. Only .txt and .md files are accepted." },
+        { status: 415 }
+      );
     }
 
+    if (file.size > MAX_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: "File exceeds the 5 MB size limit." },
+        { status: 413 }
+      );
+    }
+
+    logger.info({ userId, filename: file.name, size: file.size }, "[Docs API] Upload request");
+
+    const text = await file.text();
     if (!text.trim()) {
       return NextResponse.json(
         { error: "File contains no readable text." },
@@ -45,14 +55,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- CHUNKING ----------
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 3000,
       chunkOverlap: 200,
     });
 
     const chunks = await splitter.splitText(text);
-    console.log(`[Docs API] Split into ${chunks.length} chunks.`);
+    logger.info({ userId, chunks: chunks.length }, "[Docs API] Split document");
 
     if (chunks.length === 0) {
       return NextResponse.json(
@@ -61,98 +70,80 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- COLLECTION ----------
-    const collectionName = isUserSpecific
-      ? `user_${userId}`
-      : "global_documents";
-
+    const collectionName = `fitness_user_${userId}`;
     const collection = await getCollection(collectionName);
 
-    // ---------- EMBEDDINGS ----------
+    const successfulChunks: string[] = [];
     const embeddings: number[][] = [];
 
     for (const chunk of chunks) {
       const vec = await embedText(chunk);
-
       if (!vec || vec.length === 0) {
-        console.warn("[Docs API] Empty embedding skipped.");
+        logger.warn({ userId }, "[Docs API] Empty embedding skipped");
         continue;
       }
+      successfulChunks.push(chunk);
       embeddings.push(vec);
     }
 
-    console.log(`[Docs API] Generated ${embeddings.length} embeddings.`);
+    logger.info(
+      { userId, embeddings: embeddings.length, chunks: chunks.length },
+      "[Docs API] Generated embeddings"
+    );
 
     if (embeddings.length === 0) {
       return NextResponse.json(
-        { error: "Embedding generation failed." },
+        { error: "Embedding generation failed for all chunks." },
         { status: 500 }
       );
     }
 
-    // ---------- IDS + METADATA ----------
-    const ids = chunks.map((_, i) => `${file.name}-${userId}-${Date.now()}-${i}`);
-
-    const metadatas = chunks.map((_, i) => ({
+    const uploadedAt = new Date().toISOString();
+    const ids = successfulChunks.map((_, i) => `${file.name}-${userId}-${uploadedAt}-${i}`);
+    const metadatas = successfulChunks.map((_, i) => ({
       filename: file.name,
       chunk: i,
       userId,
-      scope: isUserSpecific ? "user" : "global",
-      uploadedAt: new Date().toISOString(),
+      scope: "user",
+      uploadedAt,
     }));
 
-    // ---------- ADD TO CHROMA ----------
     await collection.add({
       ids,
-      documents: chunks,
+      documents: successfulChunks,
       embeddings,
       metadatas,
     });
 
-    console.log(
-      `[Docs API] Stored ${chunks.length} chunks into collection "${collectionName}".`
+    logger.info(
+      { userId, stored: successfulChunks.length, chunks: chunks.length, collectionName },
+      "[Docs API] Stored chunks"
     );
 
     return NextResponse.json({
       success: true,
       filename: file.name,
-      chunks: chunks.length,
+      chunksTotal: chunks.length,
+      chunksStored: successfulChunks.length,
       collection: collectionName,
     });
-  } catch (error: any) {
-    console.error("[Docs API] ERROR:", error);
-
-    return NextResponse.json(
-      {
-        error: "Failed to upload document",
-        details: error?.message || "Unknown",
-      },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, "[Docs API] Upload error");
+    return NextResponse.json({ error: "Failed to upload document" }, { status: 500 });
   }
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId");
+    const auth = await requireAuthUser(req);
+    if (!auth.ok) return auth.response;
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized — userId required" },
-        { status: 401 }
-      );
-    }
-
-    // TODO: Store metadata in MongoDB
     return NextResponse.json({
       documents: [],
       message: "Document listing not implemented yet.",
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to list documents" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    logger.error({ err: toSafeErrorMessage(error) }, "[Docs API] List error");
+    return NextResponse.json({ error: "Failed to list documents" }, { status: 500 });
   }
 }

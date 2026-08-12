@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { handleApiResponse } from "@/lib/error-handler"
+import { GenerateImageResponseSchema, ChatResponseSchema, TranscribeResponseSchema } from "@/lib/schemas"
 
 interface AITrainerTabProps {
     userId: string
@@ -15,8 +16,7 @@ interface Message {
     image?: string  // Base64 image data
     sources?: Array<{
         content: string
-        score: number
-        metadata: Record<string, unknown>
+        source?: string
     }>
 }
 
@@ -27,7 +27,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
     // Load history on mount
-    useState(() => {
+    useEffect(() => {
         if (typeof window !== 'undefined') {
             const saved = localStorage.getItem(`chat_history_${userId}`)
             if (saved) {
@@ -38,7 +38,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 }
             }
         }
-    })
+    }, [userId])
 
     // Save history when messages change
     const saveHistory = (newMessages: Message[]) => {
@@ -118,11 +118,12 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 // Generate image instead of text response
                 const imageResponse = await fetch("/api/generate-image", {
                     method: "POST",
+                    credentials: 'include',
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: imageRequest.name, type: imageRequest.type, currentInput: currentInput }),
+                    body: JSON.stringify({ name: imageRequest.name, type: imageRequest.type }),
                 })
 
-                const { data: imageData, isQuotaError } = await handleApiResponse(imageResponse, "image request")
+                const { data: imageData, isQuotaError } = await handleApiResponse(imageResponse, "image request", GenerateImageResponseSchema)
                 if (isQuotaError || !imageData?.imageData) {
                     throw new Error("Quota exceeded or failed to generate image")
                 }
@@ -146,6 +147,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
 
                 const response = await fetch("/api/ai-trainer/chat", {
                     method: "POST",
+                    credentials: 'include',
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         message: currentInput,
@@ -156,7 +158,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                     }),
                 })
 
-                const { data, isQuotaError, error } = await handleApiResponse(response, "AI trainer chat")
+                const { data, isQuotaError, error } = await handleApiResponse(response, "AI trainer chat", ChatResponseSchema)
                 if (isQuotaError) {
                     throw new Error("Quota exceeded for AI trainer chat")
                 }
@@ -216,10 +218,11 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                 try {
                     const response = await fetch('/api/transcribe', {
                         method: 'POST',
+                        credentials: 'include',
                         body: formData,
                     })
 
-                    const { data, isQuotaError, error } = await handleApiResponse(response, "audio transcription")
+                    const { data, isQuotaError, error } = await handleApiResponse(response, "audio transcription", TranscribeResponseSchema)
                     if (isQuotaError || !data?.text) {
                         throw new Error(error || "Transcription failed")
                     }
@@ -265,25 +268,56 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
         setSelectedImage(null)
     }
 
+    const suggestionChips = [
+        "🏋️ Squat form & posture check",
+        "🥗 High protein dinner recommendation",
+        "🔥 Best 30-min HIIT workout for home",
+        "📸 Show me an image of a barbell deadlift",
+    ]
+
     return (
-        <div className="h-[600px] flex flex-col bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
+        <div className="h-[640px] flex flex-col backdrop-blur-2xl bg-slate-900/85 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden relative font-sans">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-                <h2 className="text-2xl font-bold text-black dark:text-white flex items-center gap-2">
-                    <span>🤖</span> AI Fitness Trainer
-                </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Ask me anything about fitness, nutrition, or exercise techniques
-                </p>
+            <div className="p-5 sm:px-8 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between">
+                <div>
+                    <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
+                        <span className="p-2 rounded-xl bg-emerald-950 border border-emerald-800 text-emerald-400 text-base sm:text-lg">🤖</span>
+                        AI Trainer Engine
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+                        Powered by LangGraph Self-RAG, Cohere Reranker & Chroma Vector Database
+                    </p>
+                </div>
+                <div className="hidden sm:flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-3 py-1.5 rounded-full">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    Online RAG Agent
+                </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                 {messages.length === 0 ? (
-                    <div className="text-center text-gray-500 dark:text-gray-400 mt-20">
-                        <span className="text-6xl mb-4 block">💪</span>
-                        <p className="text-lg">Start a conversation with your AI trainer!</p>
-                        <p className="text-sm mt-2">Try asking about exercises, nutrition, or workout plans.</p>
+                    <div className="text-center py-12 px-4 max-w-md mx-auto">
+                        <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-500/20 to-teal-400/20 border border-emerald-500/30 flex items-center justify-center text-4xl mb-4 shadow-lg shadow-emerald-500/10">
+                            💪
+                        </div>
+                        <h3 className="text-xl font-extrabold text-white">Ask Anything to Your AI Trainer</h3>
+                        <p className="text-slate-400 text-xs sm:text-sm mt-1 mb-6">
+                            Get personalized advice on workouts, diet recipes, or request images & voice narrations.
+                        </p>
+                        <div className="flex flex-wrap justify-center gap-2">
+                            {suggestionChips.map((chip, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => {
+                                        setInput(chip)
+                                    }}
+                                    className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 transition text-left cursor-pointer"
+                                >
+                                    {chip}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 ) : (
                     messages.map((msg) => (
@@ -294,24 +328,26 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                         >
                             <div
-                                className={`max-w-[80%] rounded-lg p-4 ${msg.role === "user"
-                                    ? "bg-[#2D5C44] dark:bg-[#10B981] text-white"
-                                    : "bg-gray-100 dark:bg-gray-800 text-black dark:text-white"
-                                    }`}
+                                className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 sm:p-5 text-sm leading-relaxed shadow-lg ${
+                                    msg.role === "user"
+                                        ? "bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-semibold"
+                                        : "bg-slate-950/90 border border-slate-800 text-slate-200"
+                                }`}
                             >
                                 <p className="whitespace-pre-wrap">{msg.content}</p>
                                 {msg.image && (
-                                    <img
-                                        src={msg.image}
-                                        alt="Uploaded or generated"
-                                        className="mt-2 max-w-full rounded-lg"
-                                    />
+                                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-black">
+                                        <img
+                                            src={msg.image}
+                                            alt="Uploaded or generated visual check"
+                                            className="max-h-64 sm:max-h-80 w-full object-contain"
+                                        />
+                                    </div>
                                 )}
                                 {msg.sources && msg.sources.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
-                                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                                            Sources: {msg.sources.length} documents
-                                        </p>
+                                    <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                                        <span className="font-semibold text-emerald-400">📚 Verified RAG Knowledge</span>
+                                        <span>{msg.sources.length} Vector Passages</span>
                                     </div>
                                 )}
                             </div>
@@ -321,34 +357,35 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
 
                 {loading && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
-                            <div className="flex gap-2">
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+                        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                            <div className="flex gap-1.5">
+                                <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-bounce" />
+                                <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.15s]" />
+                                <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:0.3s]" />
                             </div>
+                            <span className="text-xs font-semibold text-slate-400">AI Self-RAG reasoning...</span>
                         </div>
                     </motion.div>
                 )}
             </div>
 
-            {/* Input */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-                {/* Image Preview */}
+            {/* Input Controls Footer */}
+            <div className="p-3 sm:p-5 border-t border-slate-800 bg-slate-950/90 space-y-3">
+                {/* Image Preview Thumbnail */}
                 {selectedImage && (
-                    <div className="mb-2 relative inline-block">
-                        <img src={selectedImage} alt="Selected" className="max-h-32 rounded-lg" />
+                    <div className="relative inline-block">
+                        <img src={selectedImage} alt="Selected preview" className="h-20 rounded-xl border border-emerald-500/50 object-cover" />
                         <button
                             onClick={removeImage}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold hover:bg-red-600 shadow"
                         >
                             ✕
                         </button>
                     </div>
                 )}
 
-                <div className="flex gap-2">
-                    {/* Image Upload Button */}
+                <div className="flex gap-2 items-center">
+                    {/* Camera Button */}
                     <label className="cursor-pointer">
                         <input
                             type="file"
@@ -357,7 +394,7 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                             className="hidden"
                             disabled={loading}
                         />
-                        <div className="px-4 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 transition flex items-center justify-center">
+                        <div className="p-3 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl transition flex items-center justify-center text-lg">
                             📷
                         </div>
                     </label>
@@ -366,10 +403,12 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                     <button
                         onClick={isRecording ? stopRecording : startRecording}
                         disabled={loading && !isRecording}
-                        className={`px-4 py-3 rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 transition flex items-center justify-center ${isRecording
-                            ? "bg-red-500 text-white animate-pulse"
-                            : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-                            }`}
+                        className={`p-3 rounded-xl font-bold transition flex items-center justify-center text-lg ${
+                            isRecording
+                                ? "bg-red-500 text-white animate-pulse"
+                                : "bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700"
+                        }`}
+                        title={isRecording ? "Stop Recording" : "Voice Input"}
                     >
                         {isRecording ? "⏹" : "🎤"}
                     </button>
@@ -378,15 +417,16 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyPress={(e) => e.key === "Enter" && !loading && sendMessage()}
-                        placeholder="Ask about exercises, nutrition, or upload a form check image..."
-                        className="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-[#2D5C44] dark:focus:ring-[#10B981]"
+                        onKeyDown={(e) => e.key === "Enter" && !loading && sendMessage()}
+                        placeholder="Ask about workout split, calories, or request an exercise image..."
+                        className="flex-1 px-4 py-3 rounded-xl border border-slate-800 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 text-xs sm:text-sm font-medium transition"
                         disabled={loading}
                     />
+
                     <button
                         onClick={sendMessage}
                         disabled={(!input.trim() && !selectedImage) || loading}
-                        className="px-6 py-3 bg-[#2D5C44] dark:bg-[#10B981] text-white rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        className="px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 rounded-xl font-extrabold text-xs sm:text-sm hover:from-emerald-400 hover:to-teal-300 disabled:opacity-40 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
                     >
                         Send
                     </button>
@@ -395,3 +435,4 @@ export default function AITrainerTab({ userId }: AITrainerTabProps) {
         </div>
     )
 }
+
