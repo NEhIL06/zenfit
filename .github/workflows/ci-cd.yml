@@ -2,9 +2,9 @@ name: ZenFit CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 permissions:
   contents: read
@@ -13,19 +13,8 @@ concurrency:
   group: zenfit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ─── How deployments work ─────────────────────────────────────────────────────
-#
-# This pipeline handles CI (quality + build validation).
-# CD (deployment) is handled by Vercel's native GitHub integration, which
-# automatically deploys every push to main after this pipeline passes.
-#
-# This avoids duplicating deployment logic and removes the need to manage
-# VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID in GitHub Secrets.
-# ─────────────────────────────────────────────────────────────────────────────
-
 jobs:
-  # ─── Stage 1: Quality Gate ────────────────────────────────────────────────
-  # Runs on every push and every PR. All checks must pass before Vercel deploys.
+  # ─── Stage 1: Quality Gate 
   quality:
     name: Quality Gate (Lint · Type · Test · Audit)
     runs-on: ubuntu-latest
@@ -51,28 +40,21 @@ jobs:
 
       - name: Security Audit (block critical vulnerabilities)
         run: npm audit --audit-level=critical
-        # Temporary threshold: high/moderate advisories remain in upstream
-        # Next.js/LangChain/Google SDK/Recharts dependencies with no standard
-        # npm fix available. Critical advisories must stay at zero.
-
+      
       - name: Run Unit & Integration Tests (Vitest)
         run: npm run test
         env:
-          # Minimal mock env vars — lets tests run without hitting real APIs.
-          # These are NOT real secrets; they are test stubs.
           JWT_SECRET: "ci_test_jwt_secret_at_least_32_characters_long"
           UPSTASH_REDIS_REST_URL: "https://test.upstash.io"
           UPSTASH_REDIS_REST_TOKEN: "test_token"
           ENABLE_GEMINI_IMAGE: "false"
           NODE_ENV: "test"
 
-  # ─── Stage 2: Build ───────────────────────────────────────────────────────
-  # Verifies the production build compiles without errors.
-  # If this passes, Vercel's native integration will deploy automatically.
+  # ─── Stage 2: Build
   build:
     name: Build (Next.js Production)
     runs-on: ubuntu-latest
-    needs: quality  # Only build if the quality gate passes
+    needs: quality  
 
     steps:
       - name: Checkout Code
