@@ -1,4 +1,4 @@
-﻿# ZenFit — AI-Powered Fitness & Nutrition Platform
+# ZenFit — AI-Powered Fitness & Nutrition Platform
 
 <div align="center">
 
@@ -45,41 +45,40 @@ graph TB
     subgraph Client["Client Layer"]
         Browser["Browser / PWA"]
         RSC["React Server Components"]
-        RCC["React Client Components (framer-motion, zod)"]
+        RCC["React Client Components"]
     end
 
-    subgraph Edge["Edge Layer (Vercel Edge Network)"]
-        Middleware["Next.js Edge Middleware\n(jose JWT Verification)\nInjects x-user-id header"]
-        RateLimit["Upstash Rate Limiter\n(Sliding Window)"]
+    subgraph Edge["Edge Layer"]
+        Middleware["Next.js Edge Middleware\njose JWT Verification\nInjects x-user-id header"]
+        RateLimit["Upstash Rate Limiter\nSliding Window"]
     end
 
-    subgraph API["API Layer (Next.js Route Handlers)"]
-        direction LR
-        AuthAPI["/api/auth | /api/users"]
-        PlanAPI["/api/generate-plan | /api/generate-image | /api/generate-quote"]
-        TrainerAPI["/api/ai-trainer/chat | /api/transcribe | /api/generate-voice"]
+    subgraph API["API Layer"]
+        AuthAPI["/api/auth and /api/users"]
+        PlanAPI["/api/generate-plan\n/api/generate-image\n/api/generate-quote"]
+        TrainerAPI["/api/ai-trainer/chat\n/api/transcribe\n/api/generate-voice"]
         MilestoneAPI["/api/milestones"]
         HealthAPI["/api/health"]
     end
 
     subgraph AI["AI Orchestration Layer"]
-        SelfRAG["Self-RAG Pipeline\n(LangGraph StateGraph)"]
-        Multimodal["Multimodal Processor\n(Image Analysis)"]
-        Gemini["Gemini Flash\n(Generation/Vision)"]
-        Mistral["Mistral\n(Chat/Routing)"]
+        SelfRAG["Self-RAG Pipeline\nLangGraph StateGraph"]
+        Multimodal["Multimodal Processor\nImage Analysis"]
+        Gemini["Gemini Flash\nGeneration and Vision"]
+        Mistral["Mistral\nChat and Routing"]
     end
 
     subgraph Storage["Storage Layer"]
-        MongoDB[("MongoDB\nusers · user_plans · milestones")]
-        Redis[("Upstash Redis\nSHA-256 Key Cache\n30d/1h/6h TTLs")]
+        MongoDB[("MongoDB\nusers, user_plans, milestones")]
+        Redis[("Upstash Redis\nSHA-256 Key Cache\n30d / 1h / 6h TTLs")]
         ChromaDB[("ChromaDB\nVector Embeddings\nbge-base-en-v1.5")]
     end
 
     subgraph External["External Services"]
-        HuggingFace["HuggingFace (Embeddings)"]
-        Cohere["Cohere Reranker (Cross-Encoder)"]
-        DuckDuckGo["DuckDuckGo Search (Web Fallback)"]
-        ImageAPIs["Image APIs: Nanobanana · Gemini · Pollinations"]
+        HuggingFace["HuggingFace\nEmbeddings"]
+        Cohere["Cohere Reranker\nCross-Encoder"]
+        DuckDuckGo["DuckDuckGo\nWeb Fallback"]
+        ImageAPIs["Image APIs\nNanobanana, Gemini, Pollinations"]
     end
 
     Browser --> Middleware
@@ -100,28 +99,25 @@ graph TB
 The production stack runs three Docker services behind an Nginx reverse proxy that handles TLS termination and API-level rate limiting.
 
 ```mermaid
-graph LR
-    Internet["Internet (HTTPS :443)"] --> Nginx
+graph TB
+    Internet["Internet HTTPS :443"] --> Nginx
 
     subgraph Docker["Docker Network: zenfit_net"]
-        direction TB
-        Nginx["nginx:1.25-alpine\n:80 / :443\nTLS Termination | Rate Limiting\nX-Forwarded Headers\nACME Challenge Webroot"]
-        App["ZenFit Next.js App :3000\nMulti-stage Dockerfile\nNode.js 20 Alpine"]
-        Chroma["ChromaDB :8000\nchromadb/chroma:0.5.0\nPersistent Volume: chroma_data"]
+        Nginx["nginx:1.25-alpine\n:80 and :443\nTLS Termination\nRate Limiting\nX-Forwarded Headers"]
+        App["ZenFit Next.js App\nPort 3000\nNode.js 20 Alpine"]
+        Chroma["ChromaDB\nPort 8000 internal\nchromadb/chroma:0.5.0"]
     end
 
-    subgraph Managed["Managed / External"]
+    subgraph Managed["Managed and External"]
         MongoDB2[("MongoDB Atlas")]
-        UpstashRedis[("Upstash Redis (REST API)")]
-        Vercel["Vercel Edge (Serverless Deploy)"]
+        UpstashRedis[("Upstash Redis REST API")]
+        Vercel["Vercel Edge\nServerless Deploy"]
     end
 
     Nginx -->|"proxy_pass :3000"| App
     App -->|"http://chroma:8000"| Chroma
     App --> MongoDB2
     App --> UpstashRedis
-
-    Chroma -.->|"healthcheck /api/v2/heartbeat"| Chroma
     App -.->|"healthcheck /api/health"| App
 ```
 
@@ -138,12 +134,12 @@ classDiagram
     class SelfRAGState {
         +string question
         +string generation
-        +string[] documents
+        +List~string~ documents
         +boolean webSearch
         +number retryCount
         +string userId
         +string userPlanContext
-        +ChatMessage[] chatHistory
+        +List~ChatMessage~ chatHistory
     }
 
     class ChatMessage {
@@ -153,20 +149,19 @@ classDiagram
 
     class SelfRAGResponse {
         +string generation
-        +DocumentSource[] sources
-        +string[] images
+        +List~DocumentSource~ sources
+        +List~string~ images
         +string conversationId
     }
 
     class DocumentSource {
         +string content
         +number score
-        +Record metadata
+        +string metadata
     }
 
-    SelfRAGState --> ChatMessage
-    SelfRAGState --> SelfRAGResponse
-    SelfRAGResponse --> DocumentSource
+    SelfRAGState "1" --> "many" ChatMessage : chatHistory
+    SelfRAGResponse "1" --> "many" DocumentSource : sources
 ```
 
 ### Graph Execution Flow
@@ -325,7 +320,7 @@ sequenceDiagram
     end
 
     Browser->>TrainerAPI: POST /api/ai-trainer/chat {message, chatHistory, images?}
-    TrainerAPI->>TrainerAPI: Verify JWT cookie → userId
+    TrainerAPI->>TrainerAPI: Verify JWT cookie, extract userId
     TrainerAPI->>Classifier: classifyQuerySync(message)
 
     alt General Query
@@ -375,7 +370,7 @@ sequenceDiagram
 ```mermaid
 erDiagram
     USERS {
-        ObjectId _id PK
+        string id PK
         string email UK
         string passwordHash
         string fullName
@@ -383,16 +378,21 @@ erDiagram
     }
 
     USER_PLANS {
-        ObjectId _id PK
+        string id PK
         string userId FK
-        object formData
-        object plan
+        string name
+        string age
+        string fitnessGoal
+        string fitnessLevel
+        string workoutLocation
+        string dietaryPreference
+        string planSummary
         string createdAt
         string updatedAt
     }
 
     MILESTONES {
-        ObjectId _id PK
+        string id PK
         string userId FK
         string title
         string description
@@ -401,29 +401,8 @@ erDiagram
         string createdAt
     }
 
-    FORM_DATA {
-        string name
-        number age
-        string gender
-        number height
-        number weight
-        string fitnessGoal
-        string fitnessLevel
-        string workoutLocation
-        string dietaryPreference
-    }
-
-    PLAN {
-        string summary
-        array workoutDays
-        array dietPlan
-        array exercises
-    }
-
-    USERS ||--o| USER_PLANS : "has one"
+    USERS ||--o| USER_PLANS : "has one plan"
     USERS ||--o{ MILESTONES : "has many"
-    USER_PLANS ||--|| FORM_DATA : "contains"
-    USER_PLANS ||--|| PLAN : "contains"
 ```
 
 ---
@@ -433,7 +412,6 @@ erDiagram
 ```mermaid
 graph TD
     subgraph KeySchema["Cache Key Schema — SHA-256 Hashed"]
-        direction TB
         ImgExercise["global:img:exercise:{sha256}\nTTL 30 days"]
         ImgMeal["global:img:meal:{sha256}\nTTL 30 days"]
         RAGResponse["rag:user:{userId}:{sha256}\nTTL 1 hour"]
@@ -442,16 +420,15 @@ graph TD
     end
 
     subgraph Operations["Cache Operations"]
-        direction LR
-        Normalize["normalizeKey()\nlowercase + strip non-alphanumeric\nmaximize cache-hit rate"]
-        Hash["hashKey(...parts)\nSHA-256 · 64-char hex\ncollision-resistant"]
-        SCAN["clearPattern()\nCursor-based SCAN\nnon-blocking (vs KEYS command)"]
+        Normalize["normalizeKey\nlowercase + strip non-alphanumeric\nmaximizes cache-hit rate"]
+        Hash["hashKey\nSHA-256, 64-char hex\ncollision-resistant"]
+        SCAN["clearPattern\nCursor-based SCAN\nnon-blocking vs KEYS command"]
         FailOpen["Fail-Open Design\nRedis downtime — app continues\nrate limiter passes through"]
     end
 
     subgraph UpstashRedis["Upstash Redis — HTTP REST API"]
-        HTTPBased["HTTP-based client\nServerless-safe\nNo TCP sockets"]
-        AutoSerialize["Auto-serializes objects\nNo JSON.stringify needed\nPrevents double-serialization bug"]
+        HTTPBased["HTTP-based client\nServerless-safe, no TCP sockets"]
+        AutoSerialize["Auto-serializes objects\nNo JSON.stringify needed\nPrevents double-serialization"]
     end
 
     Normalize --> Hash
@@ -499,38 +476,40 @@ flowchart TD
 ## API Routes
 
 ```mermaid
-graph LR
+graph TB
+    EdgeMiddleware["Edge Middleware\nJWT Verify, injects x-user-id"]
+
     subgraph Auth["Auth and Users"]
-        POST_users["POST /api/users\nRegister + set cookie"]
-        GET_users["GET /api/users\nProfile + session recovery"]
+        POST_users["POST /api/users\nRegister and set cookie"]
+        GET_users["GET /api/users\nProfile and session recovery"]
         PUT_users["PUT /api/users\nUpdate profile"]
         POST_auth["POST /api/auth\nLogin"]
-        DELETE_auth["DELETE /api/auth\nLogout + clear cookie"]
+        DELETE_auth["DELETE /api/auth\nLogout and clear cookie"]
     end
 
     subgraph Generation["AI Generation"]
-        POST_plan["POST /api/generate-plan\nPersonalized workout + diet plan"]
-        POST_image["POST /api/generate-image\nExercise/meal image via fallback chain"]
-        POST_quote["POST /api/generate-quote\nMotivational quote (Gemini)"]
-        POST_pquote["POST /api/personalized-quote\nUser-profile-aware quote"]
-        POST_text["POST /api/generateText\nGeneral Gemini text generation"]
+        POST_plan["POST /api/generate-plan\nPersonalized workout and diet plan"]
+        POST_image["POST /api/generate-image\nExercise and meal image"]
+        POST_quote["POST /api/generate-quote\nMotivational quote"]
+        POST_pquote["POST /api/personalized-quote\nProfile-aware quote"]
+        POST_text["POST /api/generateText\nGeneral text generation"]
     end
 
     subgraph Trainer["AI Trainer"]
-        POST_chat["POST /api/ai-trainer/chat\nSelf-RAG or General Chat\n+ multimodal support"]
-        POST_transcribe["POST /api/transcribe\nAudio to Text (Gemini)"]
-        POST_voice["POST /api/generate-voice\nText to Speech (Gemini)"]
+        POST_chat["POST /api/ai-trainer/chat\nSelf-RAG or General Chat\nMultimodal support"]
+        POST_transcribe["POST /api/transcribe\nAudio to Text"]
+        POST_voice["POST /api/generate-voice\nText to Speech"]
     end
 
-    subgraph Data["Data"]
+    subgraph Data["Data and Health"]
         GET_milestones["GET /api/milestones\nList user milestones"]
         POST_milestones["POST /api/milestones\nCreate milestone"]
-        PUT_milestones["PUT /api/milestones\nUpdate or complete milestone"]
+        PUT_milestones["PUT /api/milestones\nUpdate milestone"]
         DELETE_milestones["DELETE /api/milestones\nRemove milestone"]
         GET_health["GET /api/health\nDocker healthcheck"]
     end
 
-    EdgeMiddleware["Edge Middleware\nJWT Verify — injects x-user-id"] --> Auth
+    EdgeMiddleware --> Auth
     EdgeMiddleware --> Generation
     EdgeMiddleware --> Trainer
     EdgeMiddleware --> Data
@@ -542,28 +521,28 @@ graph LR
 
 ```mermaid
 graph TD
-    subgraph Pages["Next.js Pages — App Router"]
-        Landing["app/page.tsx\nLanding / Marketing"]
+    subgraph Pages["Next.js Pages"]
+        Landing["app/page.tsx\nLanding and Marketing"]
         Dashboard["app/dashboard/page.tsx"]
         Login["app/login/page.tsx"]
         Signup["app/signup/page.tsx"]
     end
 
     subgraph Components["Components"]
-        Navbar["Navbar\ntheme toggle, auth state"]
-        DashboardTabs["DashboardTabs\ntab router"]
-        PlanTab["PlanTab\nWorkout + Diet plan display\nrecharts progress"]
-        AiTrainerTab["AiTrainerTab\nChat interface\nmultimodal upload\nvoice player"]
+        Navbar["Navbar\nTheme toggle, auth state"]
+        DashboardTabs["DashboardTabs\nTab router"]
+        PlanTab["PlanTab\nWorkout and Diet display\nRecharts progress"]
+        AiTrainerTab["AiTrainerTab\nChat interface\nMultimodal upload"]
         MilestonesTab["MilestonesTab\nCRUD milestones"]
-        SignupForm["SignupForm\nreact-hook-form + zod\nmulti-step wizard"]
+        SignupForm["SignupForm\nReact Hook Form + Zod\nMulti-step wizard"]
         FilmStrip["FilmStrip\nExercise image gallery"]
         VoicePlayer["VoicePlayer\nAudio playback"]
         Footer["Footer"]
     end
 
-    subgraph UILib["UI Library — shadcn + Radix UI"]
-        Radix["Radix UI Primitives\nDialog, Tabs, Select, Accordion, Tooltip"]
-        Framer["Framer Motion\nMicro-animations, Page transitions"]
+    subgraph UILib["UI Library"]
+        Radix["Radix UI Primitives\nDialog, Tabs, Select"]
+        Framer["Framer Motion\nMicro-animations"]
         Recharts["Recharts\nProgress charts"]
         Sonner["Sonner\nToast notifications"]
     end
@@ -586,44 +565,42 @@ graph TD
 
 ```mermaid
 flowchart TD
-    Push["git push to main\nor Pull Request"] --> Trigger["GitHub Actions Triggered\nconcurrency: cancel-in-progress"]
+    Push(["git push to main or Pull Request"]) --> Trigger["GitHub Actions Triggered\nconcurrency: cancel-in-progress"]
 
     Trigger --> Stage1
 
-    subgraph Stage1["Stage 1 — Quality Gate (ubuntu-latest)"]
-        direction TB
+    subgraph Stage1["Stage 1 — Quality Gate"]
         Checkout1["actions/checkout@v4"]
         Node1["actions/setup-node@v4\nNode.js 20 + npm cache"]
         Install1["npm ci"]
         TypeCheck["npx tsc --noEmit\nTypeScript type check"]
         Lint["npm run lint\nESLint"]
-        Audit["npm audit --audit-level=critical\nSecurity vulnerability scan"]
-        Tests["npm run test\nVitest unit + integration\nCI env vars injected"]
+        Audit["npm audit --audit-level=critical\nSecurity scan"]
+        Tests["npm run test\nVitest unit and integration tests"]
 
         Checkout1 --> Node1 --> Install1 --> TypeCheck --> Lint --> Audit --> Tests
     end
 
     Stage1 -->|"needs: quality"| Stage2
 
-    subgraph Stage2["Stage 2 — Build (ubuntu-latest)"]
-        direction TB
+    subgraph Stage2["Stage 2 — Production Build"]
         Checkout2["actions/checkout@v4"]
         Node2["actions/setup-node@v4\nNode.js 20 + npm cache"]
         Install2["npm ci"]
-        Build["npm run build\nNext.js production bundle\nproduction env vars"]
+        Build["npm run build\nNext.js production bundle"]
 
         Checkout2 --> Node2 --> Install2 --> Build
     end
 
-    Stage2 -->|"Push to main only"| Deploy
+    Stage2 -->|"push to main only"| Deploy
 
-    subgraph Deploy["Deploy — Vercel"]
+    subgraph Deploy["Stage 3 — Vercel Deploy"]
         VercelBuild["vercel build --prod\nreads env from Vercel project"]
-        VercelDeploy["vercel deploy --prebuilt --prod\nVERCEL_TOKEN + ORG_ID + PROJECT_ID"]
+        VercelDeploy["vercel deploy --prebuilt --prod"]
         VercelBuild --> VercelDeploy
     end
 
-    Deploy --> Live["Production Live"]
+    Deploy --> Live(["Production Live"])
 ```
 
 ---
