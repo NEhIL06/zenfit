@@ -1,3 +1,4 @@
+import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -20,9 +21,9 @@ const nextConfig: NextConfig = {
     'chromadb',
   ],
   // Turbopack config (top-level key in Next.js 15.3+ / 16)
-  // Alias @chroma-core/default-embed to our local stub so Turbopack never
-  // touches the broken CJS/ESM package in node_modules.
+  // In a monorepo, root points to monorepo root where hoisted node_modules live
   turbopack: {
+    root: process.env.DOCKER_BUILD === 'true' ? path.resolve(__dirname) : path.resolve(__dirname, '../../'),
     resolveAlias: {
       '@chroma-core/default-embed': './lib/chroma-embed-stub',
     },
