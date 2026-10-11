@@ -1,8 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -10,39 +8,48 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
+# Testing & Coverage
+coverage/
+test-results/
+playwright-report/
 
-# next.js
-/.next/
-/out/
+# Next.js Build Outputs
+.next/
+out/
+build/
+.dist/
 
-# production
-/build
+# Golang Binaries & Outputs
+*.exe
+bin/
+speech-service
 
-# misc
-.DS_Store
-*.pem
+# Audio Test Outputs
+*.wav
+*.mp3
 
+# Environment Variables
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+!.env.example
 
-#test-results
-/test-results/
+# Vercel
+.vercel
 
-# debug
+# TypeScript & Debugging
+*.tsbuildinfo
+next-env.d.ts
 npm-debug.log*
-.npm-cache/
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.npm-cache/
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
+# OS & Misc
+.DS_Store
+Thumbs.db
+*.pem
 IMPROVEMENTS.md

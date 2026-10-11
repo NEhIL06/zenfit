@@ -1,0 +1,11 @@
+# Binaries
+*.exe
+bin/
+speech-service
+
+# Environment files
+.env
+
+# Audio test outputs
+*.wav
+*.mp3

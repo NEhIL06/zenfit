@@ -645,17 +645,19 @@ flowchart TD
 
 ### Steps
 
-**1. Clone and install:**
+**1. Clone and install dependencies:**
 ```bash
-git clone <repo-url>
-cd y
+git clone https://github.com/NEhIL06/zenfit.git
+cd zenfit
 npm install
 ```
 
 **2. Configure environment variables:**
 ```bash
 cp .env.example .env
-# Fill in all required keys
+cp apps/web/.env.example apps/web/.env
+cp services/speech-service/.env.example services/speech-service/.env
+# Fill in required API keys
 ```
 
 **3. Start ChromaDB:**
@@ -665,23 +667,27 @@ docker compose up chroma -d
 
 **4. Seed the knowledge base (optional but recommended):**
 ```bash
-npm run seed
+npm run seed --workspace=zenfit
 ```
 
-**5. Start dev server:**
+**5. Start dev servers:**
 ```bash
+# Start Next.js web application
 npm run dev
+
+# (Optional) Start Go Speech Microservice in parallel
+npm run dev:speech
 ```
 
-The app will be available at `http://localhost:3000`.
+The web app will be available at `http://localhost:3000` and speech service at `http://localhost:8080`.
 
-### Full production stack locally
+### Full production stack locally via Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-This starts `app` (Next.js), `chroma` (vector store), and `nginx` (reverse proxy) together.
+This starts `app` (Next.js web), `speech-service` (Go audio microservice), `chroma` (vector store), and `nginx` (reverse proxy) together on the `zenfit_net` network.
 
 ---
 

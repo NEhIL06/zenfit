@@ -2,11 +2,11 @@ version: "3.9"
 
 services:
   # ─────────────────────────────────────
-  # ZenFit Next.js Application
+  # ZenFit Next.js Frontend Application
   # ─────────────────────────────────────
   app:
     build:
-      context: .
+      context: ./apps/web
       dockerfile: Dockerfile
       target: runner
       args:
@@ -26,9 +26,12 @@ services:
       - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
       - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
       - CHROMA_SERVER_URL=${CHROMA_SERVER_URL:-http://chroma:8000}
+      - SPEECH_SERVICE_URL=${SPEECH_SERVICE_URL:-http://speech-service:8080}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost}
     depends_on:
       chroma:
+        condition: service_healthy
+      speech-service:
         condition: service_healthy
     networks:
       - zenfit_net
@@ -38,6 +41,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # ─────────────────────────────────────
+  # ZenFit Speech & Audio Microservice (Go)
+  # ─────────────────────────────────────
+  speech-service:
+    build:
+      context: ./services/speech-service
+      dockerfile: Dockerfile
+    container_name: zenfit_speech_service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+      - TRUSTED_ORIGINS=${TRUSTED_ORIGINS:-http://localhost:3000,http://app:3000}
+    networks:
+      - zenfit_net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   # ─────────────────────────────────────
   # ChromaDB Vector Store
@@ -78,6 +108,8 @@ services:
       - nginx_logs:/var/log/nginx
     depends_on:
       app:
+        condition: service_healthy
+      speech-service:
         condition: service_healthy
     networks:
       - zenfit_net
