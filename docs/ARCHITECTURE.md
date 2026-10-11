@@ -1,0 +1,1113 @@
+# ZenFit — Architecture Decisions & Engineering Notes
+
+> **Started:** 2026-10-08
+> **Purpose:** Captures all architectural decisions, migration rationale, and design tradeoffs made during the evolution of ZenFit from a Next.js monolith to a microservices-based architecture.
+
+---
+
+## Table of Contents
+
+1. [Project Structure & Dev Setup](#1-project-structure--dev-setup)
+2. [Current Monolith — How It Works](#2-current-monolith--how-it-works)
+3. [Voice Generation — Current Design](#3-voice-generation--current-design)
+4. [Transcription — Current Design](#4-transcription--current-design)
+5. [Why Separate Frontend & Backend](#5-why-separate-frontend--backend)
+6. [Microservices Decomposition Plan](#6-microservices-decomposition-plan)
+7. [Async Job Processing — RabbitMQ & SSE](#7-async-job-processing--rabbitmq--sse)
+8. [Target Architecture Diagram](#8-target-architecture-diagram)
+9. [Zero-Trust Security & Boundary Hardening](#9-zero-trust-security--boundary-hardening)
+10. [Reliability, Sustainability & Distributed Job Resilience](#10-reliability-sustainability--distributed-job-resilience)
+11. [Performance Optimization & Infrastructure Economics](#11-performance-optimization--infrastructure-economics)
+12. [Pre-Production Hardening Checklist](#12-pre-production-hardening-checklist)
+13. [Migration Milestones](#13-migration-milestones)
+14. [Open Questions](#14-open-questions)
+15. [Architectural Decision Log (ADR)](#15-architectural-decision-log-adr)
+
+---
+
+## 1. Project Structure & Dev Setup
+
+### Problem: Wrong Working Directory
+
+Running `npm run dev` from `F:\zenletics\` failed — `package.json` does not exist there.
+The actual project lives in `F:\zenletics\y\`. Always run commands from there.
+
+### Problem: Port 3000 Blocked by Windows Hyper-V
+
+```
+Error: listen EACCES: permission denied 0.0.0.0:3000
+```
+
+**Root cause:** Windows Hyper-V / WSL dynamically reserves TCP port range **2990–3089**, which includes ports 3000 and 3001.
+
+Verified via:
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+# Showed: 2990 to 3089 reserved
+```
+
+**Workaround — run on port 3100:**
+```powershell
+npm run dev -- -p 3100
+# App available at http://localhost:3100
+```
+
+**Permanent fix (Admin + reboot):**
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=3000 numberofports=1
+```
+
+### Docker Setup — Local Dev vs Production
+
+The `docker-compose.yml` is a **production deployment config**. For local development, only `npm run dev` is needed.
+
+| Service | Purpose | Needed for local dev? |
+|---------|---------|----------------------|
+| `app` | Next.js production container | No — replaced by `npm run dev` |
+| `nginx` | Reverse proxy + SSL | No |
+| `chroma` | ChromaDB vector store | Only if using RAG/AI features |
+
+To spin up ChromaDB only:
+```powershell
+docker run -d -p 8000:8000 --name zenfit_chroma chromadb/chroma:0.5.0
+```
+
+---
+
+## 2. Current Monolith — How It Works
+
+ZenFit is currently a **Next.js full-stack monolith**. Both the React frontend and all backend API routes live in the same project under `app/api/`.
+
+### Full API Surface
+
+| Route | Backing Service | DB Dependency | Stateless? |
+|-------|----------------|--------------|-----------|
+| `POST /api/auth/login` | Auth | MongoDB | No |
+| `POST /api/auth/logout` | Auth | — | Yes |
+| `GET/POST /api/users` | User Profiles | MongoDB | No |
+| `GET/POST /api/milestones` | Milestones | MongoDB | No |
+| `POST /api/generate-plan` | AI — Mistral | MongoDB + Redis | No |
+| `POST /api/ai-trainer/chat` | AI — LangGraph + ChromaDB | ChromaDB + Redis | No |
+| `POST /api/generate-voice` | Audio — Gemini/Pollinations | **None** | **Yes** |
+| `POST /api/transcribe` | Audio — Gemini | **None** | **Yes** |
+| `POST /api/generate-image` | Image — Nanobanana/Pollinations | None | Yes |
+| `POST /api/generate-quote` | AI — Gemini | None | Yes |
+| `POST /api/personalized-quote` | AI | None | Yes |
+
+### Authentication Mechanism
+
+- JWT tokens signed with **HS256** using `JWT_SECRET`
+- Tokens extracted from **HttpOnly cookies** or `Authorization: Bearer` headers
+- `lib/auth.ts` → `getAuthUserFromRequest()` handles extraction and verification
+- Auth is verified **per-route** inside each API handler via `requireAuthUser()`
+- **Known issue / planned fix:** Auth and rate-limiting logic is duplicated across every route. The fix is to move all of this to an upstream API Gateway middleware so requests never reach handlers unless already verified. (See TODO comment in `app/api/generate-voice/route.ts`)
+
+---
+
+## 3. Voice Generation — Current Design
+
+**Route:** `POST /api/generate-voice`
+**File:** `app/api/generate-voice/route.ts`
+
+### Request/Response Flow
+
+```
+Client sends: POST /api/generate-voice { text, voiceName }
+  → requireAuthUser() — JWT check
+  → checkRateLimit("voice_{userId}") — Upstash Redis
+  → [Primary] Gemini TTS (gemini-2.5-flash-preview-tts)
+       Receives raw PCM bytes
+       pcmToWav() converts in-memory to WAV
+       WAV buffer encoded to Base64 string
+  → [Fallback] Pollinations TTS API
+       Receives MP3 buffer encoded to Base64 string
+  → Returns: { audioData: "<base64_string>", format: "wav"|"mp3" }
+```
+
+### Key Facts
+
+- **Zero persistence.** Audio never touches disk, S3, or MongoDB.
+- Client (`lib/gemini-voice.ts`) caches Base64 in browser `sessionStorage` (keyed by content hash). Cleared on tab close.
+- Playback is 100% browser-side HTML5 Audio via a data URI.
+- **Two consumers of the same logic exist:** `lib/gemini-voice.ts` and `lib/storage.ts` — consolidation opportunity.
+
+---
+
+## 4. Transcription — Current Design
+
+**Route:** `POST /api/transcribe`
+**File:** `app/api/transcribe/route.ts`
+
+### Request/Response Flow
+
+```
+User speaks into microphone
+  → navigator.mediaDevices.getUserMedia + MediaRecorder (audio/webm)
+  → Recording stops → in-memory Blob created
+  → POST /api/transcribe (multipart/form-data, key: "file")
+  → requireAuthUser() + checkRateLimit("transcribe_{userId}")
+  → File validation: MIME in {wav, webm, mp3, mp4}, size <= 5MB
+  → file.arrayBuffer() → Buffer → Base64 encode
+  → MultimodalProcessor.transcribeAudio(base64, mimeType)
+       Calls Gemini (gemini-2.0-flash-exp) via LangChain HumanMessage
+       with inline "media" data attachment
+  → Returns: { text: "transcribed speech" }
+```
+
+### Key Facts
+
+- **Zero persistence.** Audio buffer is garbage-collected after response.
+- **Not a dedicated STT model.** Uses general Gemini multimodal (same model as vision tasks).
+- **No streaming.** Full clip must be uploaded before transcription begins.
+
+### Known Limitations
+
+1. No real-time / live transcription
+2. General-purpose multimodal LLM is slower and more expensive than dedicated STT engines (Whisper, Deepgram, Google Cloud STT)
+3. No retry logic on Gemini timeout
+
+---
+
+## 5. Why Separate Frontend & Backend
+
+### Problems with the Current Monolith
+
+1. **All-or-nothing scaling:** Cannot scale AI inference independently from the Next.js UI.
+2. **Deployment coupling:** A backend bug requires a full frontend redeploy.
+3. **Resource contention:** LangGraph + ChromaDB I/O competes with React SSR in the same Node.js process.
+4. **No polyglot stack:** Cannot write the audio service in Go while keeping Python for ML pipelines.
+
+### Target Model
+
+- **Frontend:** Pure Next.js (SSR/static) or Vite SPA. No business logic. No direct DB access.
+- **Backend:** Distributed microservices behind an API Gateway.
+- **Communication:**
+  - REST over HTTP for synchronous calls
+  - Server-Sent Events (SSE) for streaming AI tokens and real-time notifications
+  - RabbitMQ for async, long-running AI jobs
+
+---
+
+## 6. Microservices Decomposition Plan
+
+### Decision: Keep LangGraph Chat + Plan Generator Together Initially
+
+**Verdict: Do NOT split them into separate services yet.**
+
+**Rationale:**
+
+1. The LangGraph Self-RAG state in `lib/ai-trainer/self-rag.ts` carries `userPlanContext`. The chat agent actively reads the user's plan to give context-aware answers. Splitting would require every chat request to make a synchronous inter-service HTTP call to fetch plan context — adding latency and a new failure surface.
+2. Both share identical infrastructure: Mistral client, Gemini client, rate-limit config, Zod schema parsing.
+
+**When to split in the future:** Only if Plan Generation evolves into a long-running async batch job (RabbitMQ + Celery workers) while Chat stays a low-latency SSE stream. At that point operational requirements diverge enough to justify separate deployments.
+
+### Three Domain Microservices
+
+#### Service 1 — Speech / Audio Service (Go)
+
+- **Why Go:**
+  - Audio is a pure I/O-heavy binary pipeline, not ML compute.
+  - Go goroutines handle 10k+ concurrent streams at ~15–30 MB memory footprint vs ~200–300 MB for Node.js.
+  - `sync.Pool` zero-allocation byte buffers for PCM processing.
+  - Native WebSocket support for future real-time audio streaming.
+- **Endpoints:**
+  - `POST /v1/transcribe` — multipart audio to text via Gemini STT (synchronous, ~1-2s)
+  - `POST /v1/voice/generate` — text to PCM/WAV audio stream via Gemini/Pollinations TTS (synchronous, ~1-2s)
+- **DB & Queue dependency:** None (100% stateless). No MongoDB, no ChromaDB, no RabbitMQ, no Redis Pub/Sub.
+- **AI integration:** Google GenAI Go SDK.
+
+#### Service 2 — AI Engine (Python / FastAPI)
+
+- **Why Python:** LangChain, LangGraph, ChromaDB all have first-class Python support. LLM tooling is Python-native.
+- **Endpoints:**
+  - `POST /v1/chat` — LangGraph + Self-RAG + ChromaDB, streams SSE tokens synchronously
+  - `POST /v1/documents` — Ingests workout/nutrition PDF or text documents into ChromaDB vector store
+  - `GET /v1/quote` & `POST /v1/quote/personalized` — Motivational quote generation (synchronous, cached in Redis)
+  - `POST /v1/image/generate` — Exercise/meal image generation (sync cache hit, or async via `q.images`)
+  - `POST /v1/plan/generate` — Validates user preferences, enqueues task to RabbitMQ `q.plans`, returns HTTP 202 Accepted
+  - *(Note on `POST /api/generateText`: Internalized directly into AI Engine for Self-RAG steps; not exposed publicly)*
+- **DB dependency:** ChromaDB (vector store), Redis (caching + rate limits). Connects to RabbitMQ broker as job publisher.
+
+#### Service 3 — Auth & Core Service (Express / TypeScript)
+
+- **Why Express / TypeScript:**
+  - Demonstrates professional TypeScript backend development skills (schemas, validation, domain layering).
+  - Native fit for MongoDB object modeling (Mongoose / native Mongo driver).
+  - Handles all relational-style user data and application state.
+- **Endpoints:**
+  - Auth: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/auth/refresh`
+  - Users: `POST /v1/users` (signup), `GET/PATCH /v1/users/:id` (profile management)
+  - Milestones: `GET /v1/milestones?userId=...`, `POST /v1/milestones` (streaks, badges, achievements)
+  - Plan Retrieval: `GET /v1/users/:id/plan` (fetches the completed plan generated by the background worker)
+- **DB dependency:** MongoDB (exclusive owner of `users`, `plans`, and `milestones` collections).
+- **Security:** Issues RS256/Ed25519 asymmetric JWTs using private key (see Section 9B).
+
+---
+
+## 7. Async Job Processing — RabbitMQ & SSE
+
+### Why Synchronous Long Requests Fail in Production
+
+Three endpoints currently hold HTTP connections open for 5–15 seconds:
+
+- `POST /api/generate-plan` — Mistral LLM generation
+- `POST /api/generate-image` — Nanobanana / Pollinations
+- Batch voice rendering
+
+**Cascading failures:**
+
+1. **Connection pool starvation:** Held connections occupy file descriptors, gateway threads, and browser HTTP/1.1 slots (browsers cap at 6 concurrent connections per domain).
+2. **Gateway timeouts:** Nginx, Cloudflare, and AWS ALB enforce 30–60s timeouts. LLMs can exceed these.
+3. **No backpressure:** 50 users hitting "Generate Plan" simultaneously = 50 parallel Mistral requests = mass `429 Too Many Requests`.
+4. **No retry safety:** If Gemini fails at second 12, the user sees a hard error with no recovery.
+
+### Solution: Async Request-Reply Pattern
+
+```
+Client → POST /api/v1/plans/generate
+              ↓ (response in < 20ms)
+
+API Gateway validates JWT, publishes message to RabbitMQ q.plans
+              ↓
+Returns immediately:
+  HTTP 202 Accepted
+  { "job_id": "job_01hxyz", "status": "queued" }
+
+--- Background ---
+
+Python Worker pulls from q.plans
+  → Generates plan via Mistral
+  → Writes to MongoDB
+  → PUBLISH Redis: events:user_123 { "type": "JOB_COMPLETED", "job_id": "..." }
+
+--- Client ---
+
+Listening on SSE: GET /api/v1/events
+  → Receives "job_completed" event
+  → Fetches: GET /api/v1/plans/{plan_id}
+```
+
+### RabbitMQ Queue Design
+
+| Queue | Consumer | Dead-Letter Queue | Retry Strategy |
+|-------|---------|------------------|---------------|
+| `q.plans` | Python worker | Yes | 3x exponential backoff |
+| `q.images` | Python worker | Yes | 3x exponential backoff |
+| `q.audio.batch` | Go worker | Yes | 2x with 5s fixed delay |
+
+Set `prefetch_count` equal to max concurrent LLM API calls your quota allows.
+
+### SSE for Milestones and Job Notifications
+
+**Why SSE over WebSockets:**
+
+- **Unidirectional:** Server pushes updates, client acts via HTTP POST. No bidirectional socket complexity or heartbeat ping-pong protocols.
+- **HTTP/2 Multiplexed:** Multiple SSE streams and standard REST requests share a single underlying TCP connection.
+- **Automatic Reconnection:** Native browser `EventSource` automatically reconnects on network drop with `Last-Event-ID`.
+
+---
+
+### Deep Dive: How Go Goroutines Hold SSE Connections Under the Hood
+
+To understand why this architecture eliminates the need for an external notification microservice, here is the exact networking and runtime mechanics:
+
+#### 1. Two Physical TCP Sockets
+
+There are two physical TCP sockets chained together:
+
+```
+[ Browser (Client) ]
+        │
+        │ TCP Socket 1 (held open over public internet)
+        ▼
+   [ NGINX ]
+        │
+        │ TCP Socket 2 (held open over private Docker/K8s network)
+        ▼
+[ Go API Gateway ]  ◄── Held open in a lightweight Go Goroutine!
+```
+
+- **Browser to Nginx:** Browser opens `GET /v1/events` with header `Accept: text/event-stream`.
+- **Nginx to Go API Gateway:** Nginx proxies the stream. **Crucial:** Nginx must have `proxy_buffering off;` and `proxy_read_timeout 24h;` configured. Otherwise, Nginx buffers chunks until 4KB fills, silently destroying real-time event delivery.
+
+#### 2. The HTTP Protocol Layer: Why the Connection Never Closes
+
+In a normal REST request, the server sends `Content-Length: X` and terminates the request. With SSE, the Go API Gateway sends:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+Transfer-Encoding: chunked
+```
+
+The response has no fixed length and is never terminated. The connection remains permanently open. Whenever an event occurs, the server writes a formatted UTF-8 chunk followed by two newlines (`\n\n`):
+
+```text
+event: job_completed
+data: {"job_id":"job_123","plan_id":"plan_999"}
+
+```
+
+The browser receives the chunk immediately and fires the JavaScript `EventSource.onmessage` event listener.
+
+#### 3. Go's M:N Scheduler vs OS Threads
+
+- **In Python / Multi-Threaded Node:** Holding 10,000 persistent connections requires either 10,000 OS threads (2–8 MB stack each = 20–80 GB RAM crash) or complex non-blocking reactor loops that block during garbage collection.
+- **In Go:** Goroutines are user-space green threads managed by the Go runtime, not the OS kernel.
+  - A goroutine begins with only **2 KB of stack space**.
+  - **10,000 idle SSE connections in Go consume only ~20 MB of RAM.**
+  - When a goroutine is waiting for a message from Redis Pub/Sub, the Go runtime **parks** it off the CPU. It consumes **0% CPU cycles** while waiting.
+
+#### 4. The Go Gateway Implementation Pattern
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"github.com/redis/go-redis/v9"
+)
+
+var rdb *redis.Client // Upstash / Redis client
+
+func sseEventsHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Ensure the ResponseWriter supports streaming
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Extract verified user ID from JWT middleware context
+	userId := r.Context().Value("userId").(string)
+
+	// 3. Set SSE streaming headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush() // Immediately send 200 OK to confirm connection
+
+	// 4. Subscribe this goroutine to the user's private Redis channel
+	channelName := fmt.Sprintf("events:%s", userId)
+	pubsub := rdb.Subscribe(r.Context(), channelName)
+	defer pubsub.Close() // Cleanup Redis subscription on exit
+
+	ch := pubsub.Channel()
+
+	// 5. The "Hold" Loop: parked on channel select with zero CPU usage
+	for {
+		select {
+		case <-r.Context().Done():
+			// Client closed browser tab, navigated away, or lost connection.
+			// r.Context().Done() triggers immediately.
+			// The goroutine exits, pubsub closes, memory is freed instantly.
+			return
+
+		case msg := <-ch:
+			// Python worker published to events:{userId}!
+			// Write the SSE event to the client socket:
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", "job_completed", msg.Payload)
+			flusher.Flush() // Immediately push bytes through Nginx to browser!
+		}
+	}
+}
+```
+
+#### 5. Connection Lifecycle & Automatic Cleanup
+
+1. **Connect:** Browser opens `GET /v1/events`. Go Gateway validates JWT, allocates a 2 KB goroutine, subscribes to Redis channel `events:{userId}`.
+2. **Idle:** Goroutine rests in the `select` statement. 0% CPU, 2 KB RAM.
+3. **Trigger:** Background Python worker completes plan generation in Mistral. Worker calls `redis.publish("events:usr_123", json_payload)`.
+4. **Deliver:** Redis wakes the goroutine. Go flushes the chunk to the browser. Client UI updates instantly.
+5. **Disconnect:** User closes the browser. The TCP socket breaks. Go's HTTP server cancels `r.Context()`. The `<-r.Context().Done()` branch fires, closing the Redis subscription and terminating the goroutine cleanly. **Zero memory leaks.**
+
+---
+
+### Tiered Rate Limiting Strategy (API vs Global)
+
+Rate limiting is applied at multiple tiers to balance infrastructure defense with fair LLM token utilization:
+
+| Tier | Enforced At | Target | Limit | Rationale |
+|---|---|---|---|---|
+| **Tier 1: Global DDoS Protection** | Nginx & Go Gateway | Per Client IP / User | **100 req/min** | Prevents connection starvation, bot scraping, and socket exhaustion across all endpoints. |
+| **Tier 2: High-Cost AI Operations** | Go Gateway | Per Authenticated User | **5 req/min** (`/v1/chat`, `/v1/plan/*`, `/v1/image/*`, `/v1/voice/*`) | AI inferences cost real money ($) and have external provider rate quotas (Mistral/Gemini). Prevents quota exhaustion. |
+| **Tier 3: Brute-Force Auth Guard** | Go Gateway | Per Client IP | **5 attempts/min** (`/v1/auth/login`) | Protects against credential stuffing and password guessing attacks. |
+| **Tier 4: Standard CRUD Operations** | Go Gateway | Per Authenticated User | **60 req/min** (`/v1/milestones`, `/v1/users/*`) | Cheap MongoDB index lookups; generous threshold for normal UI interactions. |
+
+All stateful rate limit token buckets use **Upstash Redis** sliding-window counters.
+
+---
+
+## 8. Target Architecture Diagram
+
+> **Key:** All DB connections are private (inside the Docker/K8s network). No service reaches a database it doesn't own. Auth claims are forwarded as trusted internal headers by the Gateway — downstream services never reach the internet-facing JWT directly.
+
+### 8a. Complete Service & API Map
+
+| Service | Owns These Endpoints | Reads DB | Writes DB | External APIs |
+|---|---|---|---|---|
+| **Go API Gateway** | `GET /v1/events` (embedded SSE Hub), Health, Routing, RS256 Auth Verification, 2-Tier Rate Limiter | Redis (Pub/Sub + Rate Limit) | Redis (Rate Limit) | — |
+| **Auth & Core Service** (Express / TypeScript) | `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/auth/refresh`, `POST /v1/users` (signup), `GET/PATCH /v1/users/:id`, `GET/POST /v1/milestones`, `GET /v1/users/:id/plan` | MongoDB | MongoDB | — |
+| **AI Engine Service** (FastAPI / Python) | `POST /v1/chat` (sync SSE), `POST /v1/plan/generate` (enqueues 202), `POST /v1/image/generate` (enqueues 202 / cache), `GET /v1/quote`, `POST /v1/quote/personalized`, `POST /v1/documents` | ChromaDB, Upstash Redis | ChromaDB (docs), Upstash Redis (caches) | Mistral, Gemini, Nanobanana, Pollinations, DuckDuckGo |
+| **Speech / Audio Service** (Go) | `POST /v1/transcribe` (sync STT), `POST /v1/voice/generate` (sync TTS stream) | None (100% Stateless) | None (100% Stateless) | Gemini TTS/STT, Pollinations TTS |
+
+### 8b. Full Architecture Diagram
+
+```
+                                  [ CLIENTS ]
+                           (Next.js / React / Mobile)
+                                       │
+                         HTTPS / SSE / HTTP/2
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │            EDGE: NGINX            │
+                     │  • TLS / SSL Termination          │
+                     │  • L7 Reverse Proxy               │
+                     │  • Static Asset Caching           │
+                     │  • proxy_buffering off (for SSE)  │
+                     └─────────────────┬─────────────────┘
+                                       │
+                         Private Docker / K8s Network
+                                       │
+                     ┌─────────────────┴─────────────────┐
+                     │          GO API GATEWAY           │
+                     │  • In-process RS256 JWT Verify    │
+                     │  • Injects X-User-Id downstream   │
+                     │  • 2-Tier Rate Limiter (Upstash)  │
+                     │  • Embedded SSE Hub (/v1/events)  │
+                     │  • Routes:                        │
+                     │    /v1/auth/*       ──► Auth Svc  │
+                     │    /v1/users/*      ──► Auth Svc  │
+                     │    /v1/milestones/* ──► Auth Svc  │
+                     │    /v1/chat         ──► AI Engine │
+                     │    /v1/plan/*       ──► AI Engine │
+                     │    /v1/image/*      ──► AI Engine │
+                     │    /v1/quote/*      ──► AI Engine │
+                     │    /v1/documents/*  ──► AI Engine │
+                     │    /v1/transcribe   ──► Speech Svc│
+                     │    /v1/voice/*      ──► Speech Svc│
+                     └─┬───────────────┼───────────────┬─┘
+                       │               │               │
+      SYNCHRONOUS HTTP │               │               │ SYNCHRONOUS STREAM
+     ┌─────────────────┘               │               └────────────────┐
+     ▼                                 ▼                                ▼
+┌──────────────────────────┐  ┌──────────────────────────┐  ┌──────────────────────────┐
+│  AUTH & CORE SERVICE     │  │    AI ENGINE SERVICE     │  │  SPEECH & AUDIO SERVICE  │
+│       (Express / TS)     │  │        (FastAPI)         │  │          (Go)            │
+│                          │  │                          │  │                          │
+│ • POST /v1/auth/login    │  │ • POST /v1/chat (SyncSSE)│  │ • POST /v1/transcribe    │
+│ • POST /v1/auth/logout   │  │ • GET  /v1/quote (Sync)  │  │   (Sync audio -> text)   │
+│ • POST /v1/users (signup)│  │ • POST /v1/documents     │  │ • POST /v1/voice/generate│
+│ • GET  /v1/users/:id     │  │ • POST /v1/plan/generate │  │   (Sync text -> WAV/MP3) │
+│ • GET  /v1/milestones    │  │   (Validates & enqueues) │  │                          │
+│ • POST /v1/milestones    │  │ • POST /v1/image/generate│  │ 100% Stateless Pipeline  │
+│ • GET  /v1/users/:id/plan│  │                          │  │ NO DB, NO RabbitMQ,      │
+└────────────┬─────────────┘  └─────┬──────────────┬─────┘  │ NO Redis Pub/Sub         │
+             │                      │              │        └──────────────────────────┘
+       OWNS: │                OWNS: │        OWNS: │
+             ▼                      ▼              ▼
+       ┌───────────┐          ┌──────────┐   ┌───────────────┐
+       │  MongoDB  │          │ ChromaDB │   │ Upstash Redis │
+       │ (Private) │          │ (Vector) │   │ Caches        │
+       │           │          │          │   │ • RAG Cache   │
+       │ • users   │          │ • global │   │ • Chat Cache  │
+       │ • plans   │          │ • user   │   │ • Image Cache │
+       │ • miles   │          └──────────┘   └───────────────┘
+       └─────▲─────┘                               │
+             │                                     │
+             │            ASYNC RABBITMQ QUEUE     │
+             │            ┌────────────────────────┴────────┐
+             │            │                                 │
+             │            ▼                                 │
+             │       ┌──────────┐                           │
+             │       │ RabbitMQ │                           │
+             │       │ Broker   │                           │
+             │       │ q.plans  │                           │
+             │       └────┬─────┘                           │
+             │            │                                 │
+             │            ▼                                 │
+             │      ┌───────────────┐                       │
+             │      │ Python Worker │                       │
+             │      │ (Mistral LLM) │                       │
+             │      └─────┬───┬─────┘                       │
+             │            │   │                             │
+             │ (1. Writes │   │ (2. PUBLISH                 │
+             │  new plan) │   │  events:userId)             │
+             └────────────┘   └─────────────────────────────┤
+                                                            ▼
+                                                   Redis Pub/Sub Channel
+                                                      events:{userId}
+                                                            │
+                                                            │ (Subscribed via Goroutine)
+                                                            ▼
+                                                   Go API Gateway SSE Hub
+                                                            │
+                                                            ▼ (Flushes chunk to browser)
+                                                   Client Browser (SSE)
+```
+
+### 8c. DB Connection Ownership (Who Connects to What)
+
+| Service | MongoDB | ChromaDB | Redis | Reason / Access |
+|---|:---:|:---:|:---:|---|
+| **Go API Gateway** | — | — | **R/W** | Reads/writes rate limit tokens; subscribes to Redis Pub/Sub `events:{userId}` for embedded SSE hub. |
+| **Auth & Core Service** (Express / TS) | **READ / WRITE** | — | **R/W** | Exclusive owner of MongoDB (`users`, `plans`, `milestones`); Redis for login brute-force rate limiting. |
+| **AI Engine (FastAPI)** | — | **READ / WRITE** | **R/W** | Owns ChromaDB for vector retrieval; Redis for RAG, general chat, and image caches. Publishes jobs to RabbitMQ. |
+| **Speech / Audio (Go)** | — | — | — | Fully stateless streaming pipeline. Zero DB/cache access. |
+| **RabbitMQ Workers** (Python) | **WRITE** | — | **WRITE** | Writes generated workout/nutrition plans to MongoDB; publishes completion events to Redis Pub/Sub. |
+
+### 8d. Async Job Flow (Plans, Images)
+
+```
+Client POST /v1/plan/generate
+         │
+         │ < 20ms
+         ▼
+  Go API Gateway → validates RS256 JWT, injects X-User-Id, forwards to AI Engine
+         │
+         ▼
+  AI Engine (FastAPI)
+    → Validates preferences
+    → Publishes job message to RabbitMQ q.plans
+    → Returns HTTP 202 Accepted { "job_id": "job_abc", "status": "queued" }
+         │
+         ▼
+  Client receives 202 in < 30ms and displays loading spinner
+
+  ╔══════════════════════════════════════╗
+  ║          RabbitMQ q.plans            ║
+  ║  prefetch_count = N                  ║
+  ║  (N = Mistral concurrent rate quota) ║
+  ╚══════════════════╦═══════════════════╝
+                     ║
+                     ▼
+  Python Worker (Plan Gen)
+    1. Consumes message from q.plans
+    2. Calls Mistral LLM (5–15s)
+    3. Writes completed plan → MongoDB (users.plans)
+    4. Clears Redis RAG cache for userId
+    5. PUBLISH Redis channel events:{userId}
+       { "type": "job_completed", "job_id": "job_abc", "plan_id": "plan_xyz" }
+    6. ACKs RabbitMQ message
+
+  On failure (Mistral 429 / timeout):
+    → NACK + requeue with exponential backoff
+    → After 3 retries → Dead-Letter Queue (q.plans.dlq)
+    → PUBLISH Redis channel events:{userId} { "type": "job_failed", "job_id": "job_abc" }
+
+  ╔══════════════════════════════════════╗
+  ║            Redis Pub/Sub             ║
+  ║       channel: events:{userId}       ║
+  ╚══════════════════╦═══════════════════╝
+                     ║
+                     ▼
+  Go API Gateway (Embedded SSE Hub)
+    (Goroutine holding open GET /v1/events for this user)
+    → receives payload from Redis Pub/Sub
+    → flushes SSE chunk directly to client HTTP/2 stream:
+
+  event: job_completed
+  data: {"job_id":"job_abc","type":"plan","plan_id":"plan_xyz"}
+
+  Client UI updates instantly & fetches: GET /v1/users/usr_123/plan from Auth & Core Service
+```
+
+---
+
+
+## 9. Zero-Trust Security & Boundary Hardening
+
+### 9.1 Network & Reverse Proxy Layer (Nginx)
+
+#### A. Nginx Buffering & SSE Event Streaming
+Nginx buffers responses by default. An SSE endpoint will appear completely silent until the buffer fills (~4KB). Events never arrive in real time unless buffering is explicitly disabled.
+
+```nginx
+location /api/v1/events {
+    proxy_pass http://api_gateway_upstream;
+    proxy_http_version 1.1;
+
+    # Without these, SSE events are silently queued until buffer fills:
+    proxy_set_header Connection '';
+    proxy_buffering off;
+    proxy_cache off;
+    chunked_transfer_encoding off;
+
+    # Prevent Nginx from killing idle SSE connections:
+    proxy_read_timeout 24h;
+    proxy_send_timeout 24h;
+}
+```
+
+#### B. IP Spoofing Prevention & Rate Limit Sanitization
+* **The Vulnerability:** Using `$proxy_add_x_forwarded_for` appends the client IP to whatever `X-Forwarded-For` header was provided by the client. An attacker sending `X-Forwarded-For: 1.2.3.4` causes downstream handlers parsing the first IP in the list to evaluate `1.2.3.4`, bypassing all IP-based rate limiting on authentication and registration.
+* **The Production Rule:**
+  ```nginx
+  # Overwrite untrusted client headers at the edge:
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Real-IP       $remote_addr;
+  ```
+  *(If behind Cloudflare or AWS ALB, configure `set_real_ip_from` with provider CIDRs and extract `real_ip_header CF-Connecting-IP;` or `X-Forwarded-For` with trusted proxy count).*
+
+#### C. Browser Permissions-Policy Fix (Microphone Access)
+* **The Vulnerability:** Setting `Permissions-Policy "camera=(), microphone=(), geolocation=()"` causes all modern browsers to outright block `navigator.mediaDevices.getUserMedia`. The voice transcription and AI audio trainer recorder will fail with `DOMException: PermissionDeniedError`.
+* **The Production Rule:**
+  ```nginx
+  add_header Permissions-Policy "camera=(), microphone=(self), geolocation=()" always;
+  ```
+
+#### D. Container Port Isolation (Zero Direct Host Exposure)
+* **The Vulnerability:** Mapping `3000:3000` or `8000:8000` on application containers in `docker-compose.yml` binds them to `0.0.0.0` on the host, allowing attackers to hit internal backend services directly via `http://<server-ip>:3000`, bypassing Nginx TLS, request body size limits, and rate limiting.
+* **The Production Rule:** Only Nginx exposes host ports (`80`, `443`). Downstream microservices exist strictly on internal Docker bridge / Kubernetes overlay networks (`zenfit_net`) and are reachable solely through the Gateway.
+
+---
+
+### 9.2 API Gateway Boundary Enforcement
+
+#### A. Inbound Header Sanitization (Internal Claim Spoofing)
+* **The Vulnerability:** Downstream internal services trust `X-User-Id` and `X-User-Role` injected by the Go Gateway. If a malicious external client sends `X-User-Id: admin_root`, and the Gateway fails to strip unverified client headers on public or unauthenticated endpoints, downstream services can suffer critical authorization bypass.
+* **The Production Rule:**
+  1. Go Gateway **unconditionally strips all inbound `X-User-*` and `X-Internal-*` headers** from every request before running middleware.
+  2. Only after validating the JWT does the Gateway inject verified `X-User-Id` and `X-User-Role` headers for downstream proxying.
+
+#### B. Upgrade JWT to Asymmetric Keys (RS256 / Ed25519) + JWKS
+* **The Monolith Limitation:** Monolith uses symmetric HS256 (`JWT_SECRET`). In microservices, sharing the secret with all services creates a single point of failure (one compromised service allows forging all tokens).
+* **The Target Design:**
+  - **Auth & Core Service:** Holds the **Private Key** (signs tokens on login/signup, never shared).
+  - **Go API Gateway & Workers:** Hold only the **Public Key** (cached in-memory, verified in < 1ms without network calls).
+  - Public keys distributed via standard JWKS (`GET /.well-known/jwks.json`).
+
+#### C. Short-Lived Access Tokens + Revocable Refresh Tokens
+* Current monolith issues 30-day JWT tokens with zero revocation capability.
+* **Target Token Lifecycle:**
+  - **Access Token:** RS256, 15-minute lifespan (short exposure window if intercepted).
+  - **Refresh Token:** Opaque UUID stored as HttpOnly, SameSite=Lax cookie; recorded in MongoDB/Redis with family tracking. Rotated on each refresh.
+  - **Instant Revocation:** On logout or password reset, delete refresh token and write user ID to a short-lived Redis denylist for active access tokens (`SET "denylist:user:{id}" 1 EX 900`).
+
+---
+
+### 9.3 Environment & Secrets Fail-Safe
+
+#### A. Production Boot Halting (Fail-Closed)
+* In development, default fallback secrets are acceptable. In production (`NODE_ENV === "production"`), the server must throw an unrecoverable exception and terminate immediately if `JWT_SECRET`, `MONGODB_URI`, or critical API keys are unset.
+* Under no circumstances may an application fall back to default development keys in production environments.
+
+---
+
+## 10. Reliability, Sustainability & Distributed Job Resilience
+
+### 10.1 Economic Denial-of-Wallet & Fail-Closed Rate Limiting
+
+* **The Problem:** Default rate-limit error handlers that fail open (`return { success: true }`) prevent user disruption during Redis blips on read endpoints, but expose expensive GenAI and TTS endpoints (Mistral, Gemini, Pollinations) to unlimited billing spikes during infrastructure degradation.
+* **The Two-Tier Architecture:**
+  - **Tier 1 (Read / Inexpensive Routes):** Fail-open on Redis timeout (prioritizes availability).
+  - **Tier 2 (AI Inference, TTS, Image Generation):** **Fail-closed** with local token bucket fallback. If Redis is unreachable, allow a tight in-memory fallback limit (e.g., max 2 calls/min) and reject excess with HTTP 429/503.
+  - **Transport Optimization:** Replace Upstash HTTP REST calls (`fetch` per request, adding 40–100ms) with a persistent TCP Redis client inside the Go Gateway (sub-millisecond evaluation).
+
+---
+
+### 10.2 Distributed Async Job Integrity & State Reconciliation
+
+```
+Client                  Go Gateway               RabbitMQ                   Python Worker           MongoDB & Redis
+  │                         │                       │                             │                       │
+  │── POST /v1/plan ───────►│                       │                             │                       │
+  │   (Idempotency-Key)     │── Enqueue Job ───────►│                             │                       │
+  │                         │   (q.plans)           │── Consume (Prefetch=N) ────►│                       │
+  │◄── HTTP 202 Accepted ───│                       │                             │                       │
+  │    { job_id, status }   │                       │                             ├── 1. Generate (LLM)   │
+  │                         │                       │                             ├── 2. Write MongoDB ──►│
+  │                         │                       │                             │      (Status: DONE)   │
+  │                         │                       │                             ├── 3. PUBLISH Redis ──►│
+  │                         │                       │                             │      events:{userId}  │
+  │                         │                       │◄── 4. basic_ack ────────────│                       │
+  │                         │                       │    (Only AFTER 2 & 3)       │                       │
+```
+
+#### A. Dual-Write Gap & Hanging SSE Prevention
+If a worker writes the plan to MongoDB but crashes before publishing to Redis Pub/Sub, the client's SSE listener hangs indefinitely.
+* **Safeguards:**
+  1. **Job Lifecycle Collection:** All async jobs are saved with states: `PENDING` → `PROCESSING` → `COMPLETED` | `FAILED`.
+  2. **Strict ACK Sequencing:** Workers send RabbitMQ `basic_ack` **only after** both the MongoDB record write and Redis `PUBLISH` have succeeded.
+  3. **Client SSE Fallback:** Frontend SSE streams enforce a 30-second timeout. If no completion event arrives, the client initiates fallback polling against `GET /v1/jobs/{job_id}` to reconcile state.
+
+---
+
+### 10.3 Distributed Idempotency (Double-Click Protection)
+
+* **The Risk:** Network latency causes users to click "Generate Plan" multiple times. Without deduplication, multiple Mistral jobs enter RabbitMQ, generating duplicate plans and racing to overwrite `users.plans`.
+* **The Implementation:**
+  - Clients send an `Idempotency-Key: <uuid>` header on generation endpoints.
+  - The Gateway acquires a distributed lock in Redis:
+    ```
+    SET "idempotency:plan:{userId}:{key}" "PENDING" NX EX 120
+    ```
+  - If the key exists, the Gateway returns HTTP 409 Conflict or returns the existing `job_id` without re-enqueuing.
+
+---
+
+### 10.4 RabbitMQ Poison Pills, Retries & Dead Letter Queues (DLQ)
+
+* **The Risk:** Corrupted input or third-party schema changes causing a worker exception will enter an infinite crash loop if uncaught errors simply re-queue (`basic_nack(requeue=True)`).
+* **The Implementation:**
+  1. Configure RabbitMQ Quorum Queues with `x-delivery-count` or Dead-Letter Exchange (`dlx.plans`).
+  2. Set maximum delivery attempts to **3** with exponential backoff.
+  3. If processing fails after 3 attempts, route message to `q.plans.dlq`, mark job as `FAILED` in MongoDB, and publish a `{ type: "job_failed", job_id: "..." }` event to the user's SSE channel.
+
+---
+
+### 10.5 Third-Party AI Fallback Circuit Breakers
+
+* **The Risk:** When primary Gemini TTS degrades, requests wait for the full timeout (10–15s) before falling back to Pollinations TTS (another 3–5s). Total request duration surges to ~20s, exhausting server connection pools.
+* **The Implementation:**
+  - Wrap third-party API clients in a Circuit Breaker (`gobreaker` in Go, `pybreaker` in Python).
+  - **Thresholds:** If 5 consecutive calls fail or exceed timeout, trip the breaker to `OPEN` for 60 seconds.
+  - While `OPEN`, requests skip the failing primary API immediately and route straight to the secondary fallback, preserving sub-2s response times.
+
+---
+
+### 10.6 Synchronous vs Asynchronous Boundary Specification
+
+| Endpoint | Protocol | Latency Profile | Handling Pattern | Rationale |
+|---|:---:|:---:|:---:|---|
+| `POST /v1/chat` | HTTP/2 (SSE) | 200ms TTFT | Direct Sync Stream | Interactive conversational UI requires immediate first-token stream. |
+| `POST /v1/plan/generate` | HTTP/2 + SSE | 5–15s | Async 202 + RabbitMQ | Heavy LLM inference; must not block HTTP server connection pools. |
+| `POST /v1/image/generate` | HTTP/2 + SSE | 5–12s | Async 202 + RabbitMQ | GPU image synthesis; requires worker queue backpressure. |
+| `POST /v1/transcribe` | HTTP/2 | 2–4s | Direct Sync | Audio uploads < 5MB; Gemini STT responds synchronously within acceptable user wait time. |
+| `POST /v1/voice/generate` | HTTP/2 | 1–2s | Direct Sync | Short audio prompts (< 800 chars); low enough latency for synchronous streaming response. |
+
+---
+
+## 11. Performance Optimization & Infrastructure Economics
+
+### 11.1 Audio Streaming: Eliminating the Base64 Serialization Tax
+* **The Inefficiency:** Base64 encoding inflates raw binary payloads by **33% in size**. Wrapping audio buffers in JSON strings (`{ audioData: "<base64>" }`) forces high garbage collection churn and memory buffer reallocation.
+* **The Optimization:**
+  - The Go Speech/Audio Service returns raw binary streams with `Content-Type: audio/wav` and `Transfer-Encoding: chunked`.
+  - The browser client consumes the stream directly:
+    ```javascript
+    const blob = await response.blob();
+    const audioUrl = URL.createObjectURL(blob);
+    new Audio(audioUrl).play();
+    ```
+  - For long-form audio generation, workers upload directly to S3 / Cloudflare R2 and return a short-lived presigned URL.
+
+---
+
+### 11.2 ChromaDB Lifecycle & Multi-Tenancy
+* **The Risk:** Vector embeddings generated by AI Trainer interactions persist indefinitely in `chroma_data`, risking disk exhaustion over extended operation.
+* **The Optimization:**
+  1. **Retention Windows:** Ephemeral session context expires after 90 days; only curated user health milestones and baseline profiles are retained in persistent vector storage.
+  2. **Access Control:** Enable token authentication on ChromaDB via `CHROMA_SERVER_AUTH_CREDENTIALS` to prevent unauthenticated intranet access.
+
+---
+
+### 11.3 Healthcheck Probes: Liveness vs Readiness
+* **The Outage Trap:** If `/health` tests external services (e.g., MongoDB, Mistral) and returns HTTP 500 when Mistral blips, Docker/Kubernetes marks the container unhealthy and initiates a restart. The entire cluster enters a cascading reboot loop.
+* **The Standard:**
+  - **Liveness Probe (`/health/live`):** Tests only that the HTTP process is running. Never checks downstream databases or external APIs.
+  - **Readiness Probe (`/health/ready`):** Tests local database/cache connectivity. If failing, traffic is removed from the replica without killing the container.
+
+---
+
+## 12. Pre-Production Hardening Checklist
+
+Prioritized safeguards to complete before production launch:
+
+```
+[ ] P0 - Nginx Header Overwrite
+        Replace `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
+        with `$remote_addr;` to eliminate IP-spoofing rate-limit bypass.
+
+[ ] P0 - Fix Microphone Permissions-Policy
+        Change nginx.conf to `microphone=(self)` to prevent browser audio recording blocks.
+
+[ ] P0 - Remove Public Host Port Mappings
+        Remove `3000:3000` from docker-compose.yml so only Nginx is accessible externally.
+
+[ ] P0 - Fail-Closed Production Secrets
+        Throw fatal process exception on startup if JWT_SECRET is missing in production.
+
+[ ] P0 - Gateway Inbound Header Sanitization
+        Strip all incoming `X-User-*` headers from external clients at the Gateway boundary.
+
+[ ] P1 - Fail-Closed AI Rate Limiting
+        Protect LLM/TTS endpoints from economic denial-of-wallet during Redis downtime.
+
+[ ] P1 - Dual-Write Gap & Worker ACK Sequencing
+        Ensure RabbitMQ ACK occurs only after MongoDB write and Redis PUBLISH succeed;
+        implement 30s client SSE timeout with GET fallback polling.
+
+[ ] P1 - Dead Letter Queue (DLQ) & Poison Pill Mitigation
+        Configure max 3 retries on RabbitMQ queues before routing to DLQ with user notification.
+
+[ ] P1 - Circuit Breaker on Third-Party AI Fallbacks
+        Prevent Gemini timeout cascades from inflating fallback latency to 20s.
+
+[ ] P2 - Binary Audio Streaming
+        Transition audio endpoints from Base64 JSON payloads to raw `audio/wav` binary streaming.
+```
+
+---
+
+## 13. Migration Milestones
+
+Migration follows the **Strangler Fig Pattern**: incrementally extract services without big-bang rewrites. Each phase leaves the frontend working identically.
+
+### Phase 0 — Current State (Complete)
+Next.js monolith handles all routing, auth, AI inference, and data access.
+
+### Phase 1 — Extract Speech/Audio Service (Go)
+- Build Go service: `POST /v1/transcribe` + `POST /v1/voice/generate`
+- Stream binary audio (`audio/wav`) directly to eliminate Base64 encoding tax
+- Next.js `/api/transcribe` and `/api/generate-voice` routes proxy to Go service internally
+- Zero frontend changes required
+- **Risk:** Very low — both routes are 100% stateless with no DB dependency
+
+### Phase 2 — Go API Gateway + Nginx Cluster (with Embedded SSE)
+- Deploy Go API Gateway (in-process RS256 JWT verification, route forwarding, 2-tier rate limiting)
+- Implement embedded SSE Hub (`GET /v1/events`) backed by Go goroutines and Redis Pub/Sub
+- Strip inbound `X-User-*` headers at the Gateway boundary
+- Configure Nginx: TLS termination, load balancing, SSE proxy (`proxy_buffering off;`), `microphone=(self)`
+- Downstream services trust `X-User-Id` and `X-User-Role` headers injected by Gateway
+
+### Phase 3 — AI Engine Service (FastAPI) + RabbitMQ & Workers
+- Extract LangGraph Chat + Self-RAG + ChromaDB to Python FastAPI service
+- Plan Generation (`POST /v1/plan/generate`) and Image Generation become async 202-pattern jobs publishing to RabbitMQ
+- Deploy background Python worker to consume `q.plans`, generate plans via Mistral, write to MongoDB, and publish completion to Redis channel `events:{userId}`
+- Configure DLQs, retry limits, and circuit breakers for external AI APIs
+
+### Phase 4 — Auth & Core Service (Express / TypeScript)
+- Extract Auth, Users, and Milestones to dedicated Express / TypeScript service
+- Service becomes the sole owner of MongoDB (`users`, `plans`, `milestones`)
+- Implements RS256 private-key token signing; exposes JWKS public keys for Go Gateway verification
+- Next.js frontend transitions into a pure client shell calling `/v1/...` via the Gateway
+
+### Phase 5 — Production Hardening & Container Orchestration
+- Healthchecks (separated Liveness vs Readiness), container graceful shutdowns, Docker Compose / Kubernetes manifests
+- Zero-downtime rolling updates and resource limits (CPU/Memory)
+- Optional: Horizontal Pod Autoscaler (HPA) for Go API Gateway and AI Engine worker pods
+
+---
+
+## 14. Open Questions
+
+- [x] **Message broker & Redis strategy:** RabbitMQ confirmed for async task processing (DLQ, routing, workers); Redis TCP (`rediss://`) confirmed for Go SSE hub, with Upstash REST retained for simple stateless handlers.
+- [ ] **Frontend target:** Keep Next.js SSR for SEO pages or migrate to Vite SPA?
+- [ ] **STT engine:** Replace Gemini multimodal transcription with a dedicated engine — Whisper (self-hosted), Deepgram, or Google Cloud Speech-to-Text?
+- [ ] **Real-time voice streaming:** WebSocket MediaRecorder streaming to Go service for live workout voice commands?
+- [ ] **API versioning policy:** `/v1/` prefix confirmed. Define deprecation and sunset policy before Phase 1 ships.
+- [ ] **Service mesh:** At Kubernetes scale, evaluate Istio or Linkerd for mTLS between internal services.
+
+---
+
+## 15. Architectural Decision Log (ADR)
+
+This section consolidates all historical and active architectural, security, performance, and operational decisions made across the lifecycle of ZenFit.
+
+---
+
+### 15.1 Authentication & Token Management
+
+#### Decision: Transition JWT Storage to Exclusive `httpOnly` Cookies with Bearer Fallback
+- **What Was Done**: Removed raw JWT token strings from the JSON response body of `POST /api/auth/login`. Tokens are now set exclusively via `httpOnly`, `Secure`, `SameSite=Lax` cookies. Added `Authorization: Bearer <token>` header inspection as a fallback in `lib/auth.ts`.
+- **Why**: 
+  - Storing JWTs in browser `localStorage` or `sessionStorage` leaves them vulnerable to theft via Cross-Site Scripting (XSS).
+  - `httpOnly` prevents client-side JavaScript from reading the session token.
+  - Supporting `Authorization: Bearer` headers allows non-browser clients (mobile apps, external microservices) to authenticate safely without cookies.
+
+#### Decision: Enforce Minimum 32-Character Guard for `JWT_SECRET` Across All Non-Test Environments
+- **What Was Done**: Updated `lib/constants.ts` to throw a fatal startup error if `JWT_SECRET` is missing, default/fallback, or under 32 characters in any environment (dev, staging, prod) except `test`.
+- **Why**: Weak or hardcoded secrets permit offline token forgery and algorithm confusion attacks. Enforcing secret length at startup prevents accidental deployment with vulnerable configuration.
+
+---
+
+### 15.2 Access Control & Authorization Boundaries
+
+#### Decision: Implement Strict Ownership Guards on User Profile Endpoints
+- **What Was Done**: Refactored `GET` and `PUT` `/api/users/[id]/route.ts` to extract the authenticated user from session context (`getAuthUserFromRequest`) and enforce `authUser.userId === targetId`.
+- **Why**: Previously, any authenticated user (or unauthenticated request due to a faulty boolean operator) could read or overwrite any user's profile and PII by changing the URL parameter. Ownership guards enforce strict tenant boundary isolation.
+
+#### Decision: Strict Schema Binding & Enum Sanitization for Profile Updates
+- **What Was Done**: Applied `UserProfileUpdateSchema.strict()` and constrained fields like `fitnessGoal`, `experienceLevel`, and `workoutLocation` to strict Zod Enums.
+- **Why**:
+  - `.strict()` prevents mass-assignment vulnerabilities (e.g., injecting `password` or internal fields into a profile update payload).
+  - Enums prevent prompt injection attacks when free-text profile attributes are later interpolated into AI/LLM prompts (e.g., `generate-plan` or `ai-trainer`).
+
+---
+
+### 15.3 Data Architecture & Performance Optimization
+
+#### Decision: Server-Side Index Filtering for Milestones (`/api/milestones?userId=...`)
+- **What Was Done**: Refactored `getMilestonesByUserId()` in `lib/storage.ts` to pass `?userId=` as a URL parameter to the API route, and updated `app/api/milestones/route.ts` to execute a filtered MongoDB query `{ userId }`.
+- **Why**: 
+  - Previously, `getMilestonesByUserId` fetched **all** database milestones into client memory and ran `Array.prototype.filter()`.
+  - Client-side filtering is an $O(N)$ memory and bandwidth bottleneck that degrades as the database grows.
+  - Server-side indexing reduces query execution to $O(1)$ lookup time and drastically lowers API payload sizes.
+
+#### Decision: Dependency Pruning (`@google/generative-ai`)
+- **What Was Done**: Uninstalled `@google/generative-ai` package after verifying zero active import usages across the codebase. Standardized on `@google/genai` and `@mistralai/mistralai`.
+- **Why**: Prevents bundle bloat, reduces dependency supply-chain attack surface, and avoids duplicate library version conflicts.
+
+---
+
+### 15.4 AI System Resilience & Prompt Protection
+
+#### Decision: Exception-Safe LLM Response Parsing & Self-RAG Classification
+- **What Was Done**: Wrapped `JSON.parse` in `generate-plan/route.ts` in `try/catch` blocks returning `502 Bad Gateway` on malformed responses. Integrated zero-cost query classification (`classifyQuerySync`) before invoking the heavy Self-RAG pipeline in `chat/route.ts`.
+- **Why**:
+  - LLMs occasionally return markdown-wrapped or malformed JSON. Crashing the Node.js process with an unhandled exception causes 500 errors and server instability.
+  - Fast-path keyword/greeting classification handles trivial messages (e.g., "hi", "thanks") instantly at zero cost without triggering LLM latency or token usage.
+
+---
+
+### 15.5 Observability & Information Leakage Prevention
+
+#### Decision: Production Structured JSON Logging & Development Formatter
+- **What Was Done**: Created `lib/logger.ts` — a zero-dependency structured logger that emits formatted JSON objects in production (suitable for Vercel Log Drains / Datadog / CloudWatch) and human-readable text in development. Replaced raw `console.log` across route handlers.
+- **Why**: Unstructured text logs are difficult to index, filter, and alert on in production log analyzers. Structured JSON logging enables machine parsing, log aggregation, and real-time security alerting.
+
+#### Decision: Safe Error Serialization via `toSafeErrorMessage()`
+- **What Was Done**: Created `toSafeErrorMessage()` in `lib/error-handler.ts` to return internal error messages only when `NODE_ENV === 'development'`, returning generic messages in production 500 responses.
+- **Why**: Returning raw `error.message` or stack traces in HTTP responses leaks sensitive infrastructure details (database names, file paths, library versions, internal IP addresses) to potential attackers.
+
+---
+
+### 15.6 CI/CD & Automated Quality Control
+
+#### Decision: Single Consolidated 3-Stage CI/CD Pipeline
+- **What Was Done**: Replaced redundant `.github/workflows/ci.yml` and `ci-cd.yml` with a unified `.github/workflows/ci-cd.yml` containing three gated stages: `Quality Gate` (linting, type-checking, Vitest) $\rightarrow$ `Build` $\rightarrow$ `Deploy` (via official Vercel CLI).
+- **Why**: Guarantees that code is never deployed to production unless all type checks, lints, and unit/integration security regression tests pass 100%.
+
+---
+
+### 15.7 CSRF Protection & Origin Validation Strategy
+
+#### Decision: Enforce `SameSite=Lax/Strict` and Origin Checking for Cookie Mutations
+- **What Was Done**: Evaluated CSRF risk profile. Confirmed recommendation to validate `Origin` / `Referer` headers on state-changing API requests (`POST`, `PUT`, `DELETE`) authenticated via cookies.
+- **Why**:
+  - `httpOnly` cookies protect against token theft via XSS, but browser automatic cookie inclusion makes endpoints vulnerable to Cross-Site Request Forgery (CSRF) if a malicious site submits a cross-origin form/fetch.
+  - `SameSite=Lax` mitigates top-level cross-site POST forms in modern browsers, but Origin checking provides defense-in-depth against subdomain navigation or browser compatibility edge cases.
+  - Requests carrying `Authorization: Bearer` headers are naturally immune to CSRF because browsers do not auto-attach custom authorization headers across origins.
+
+---
+
+### 15.8 Monolith Hardening Pass (Historical Remediation)
+
+#### Decision: Route Handlers Must Re-Verify Auth, Not Trust Client Headers
+- **What Was Done**: Added `requireAuthUser()` in `lib/api-security.ts` and moved high-risk API routes to server-derived identity: plan generation, AI chat, document upload/listing, image generation, voice generation, transcription, text generation, quote generation, personalized quote generation, and milestones.
+- **Why**: Middleware is useful but not a complete authorization boundary. Route handlers can be invoked directly in tests, refactors, server actions, or future internal calls. User identity must come from a verified JWT, not `x-user-id` headers or request body fields.
+
+#### Decision: Stop Persisting or Rate-Limiting Against Spoofable User IDs
+- **What Was Done**: `POST /api/generate-plan` now stores plans under `auth.user.userId`; `POST /api/ai-trainer/chat` now passes the authenticated user ID into Self-RAG; milestones now derive `userId` from auth and reject mismatched legacy body/query IDs.
+- **Why**: Client-provided user IDs allow cross-user writes, rate-limit bypasses, and incorrect cache invalidation. Server-derived identity keeps tenant ownership stable.
+
+#### Decision: Add Origin Checks for Cookie-Authenticated Mutations
+- **What Was Done**: `middleware.ts` now rejects mutating API requests with untrusted `Origin`/`Referer` headers unless the request uses an explicit Bearer token. `NEXT_PUBLIC_APP_URL` and optional `TRUSTED_ORIGINS` define accepted origins.
+- **Why**: `httpOnly` cookies prevent token theft, but browsers still attach cookies automatically. Origin validation adds CSRF defense-in-depth for state-changing endpoints.
+
+#### Decision: Bound Uploads and AI-Cost Surfaces
+- **What Was Done**: Added strict request schemas for chat/images/text/voice/milestones, bounded chat images to one data URL, capped transcription and document uploads at 5 MB, enforced audio MIME allowlists, rejected unimplemented PDF document ingestion, and added per-user rate limits to external-cost endpoints.
+- **Why**: AI endpoints are expensive and upload endpoints are memory-sensitive. Early validation reduces abuse, accidental cost spikes, and denial-of-service risk.
+
+#### Decision: Disable Global RAG Writes Until an Admin Workflow Exists
+- **What Was Done**: `/api/ai-trainer/documents` now only writes to authenticated user collections and returns `403` for global document uploads.
+- **Why**: Allowing any signed-in user to write `global_documents` lets one user poison the shared retrieval corpus for all users. Global knowledge ingestion needs an explicit admin review/audit path.
+
+#### Decision: Remove Critical Dependency Attack Surface
+- **What Was Done**: Removed unused/vulnerable `@chroma-core/default-embed`, `jspdf`, and unused `html2canvas`. PDF export now uses `html-to-image` plus the browser print dialog instead of client-side PDF generation.
+- **Why**: `@chroma-core/default-embed` pulled native ONNX/tar vulnerabilities while the app already uses a custom Gemini embedder. `jspdf` had critical advisories and was only used for a non-essential export path.
+
+#### Decision: CI Should Block Deploys on Real Release Blockers
+- **What Was Done**: Fixed ESLint installation/configuration, removed the deprecated placeholder workflow, added workflow concurrency, added a Vercel secret preflight step, kept type-check/test/lint/build gates, and set `npm audit --audit-level=critical`.
+- **Why**: CI was previously unable to run lint and would fail permanently on high/moderate upstream advisories with no standard npm fix. Critical vulnerabilities now block deployment; remaining high/moderate advisories are documented debt requiring dependency migration.
+
+---
+
+### 15.9 Signup, Plan, RAG, and Proxy Flow Alignment
+
+#### Decision: Keep Form Options Aligned with Server Enums
+- **What Was Done**: Updated signup defaults and select options to use the same values accepted by `GeneratePlanRequestSchema` (`Vegetarian` instead of `Veg`, `Outdoors` instead of `Outdoor`, and supported gender/diet/location values only).
+- **Why**: Signup was creating users successfully but background plan generation could fail with `400` because the UI submitted values rejected by the plan API schema. A production codebase should keep UI options and API contracts in one consistent vocabulary.
+
+#### Decision: Treat `user_plans` as the Plan Source of Truth
+- **What Was Done**: Removed client-side attempts to save generated plans through profile updates. Full plan regeneration now persists through `POST /api/generate-plan`; diet-only regeneration is merged with the existing server-side plan before returning.
+- **Why**: The profile update schema intentionally rejects unknown/mass-assignment fields, including `plan`. Persisting plans through both user profiles and `user_plans` created a broken write path and two competing sources of truth.
+
+#### Decision: Recover Dashboard Sessions from the Auth Cookie
+- **What Was Done**: `GET /api/users` now returns the authenticated user when no `id` or `email` query is provided, and the client falls back to that endpoint when `localStorage.current_user_id` is absent.
+- **Why**: Authentication is cookie-backed. A valid session should not fail just because local browser state was cleared, opened in a new tab, or not yet hydrated.
+
+#### Decision: Support Both Local Chroma and Chroma Cloud
+- **What Was Done**: `lib/chroma.ts` now uses `CloudClient` only when cloud credentials are complete; otherwise it connects to `CHROMA_SERVER_URL`, which matches the Docker Compose Chroma service.
+- **Why**: The compose stack already provides local Chroma, but the code always attempted Chroma Cloud. That made the RAG pipeline fail unless cloud-only credentials were present.
+
+#### Decision: Use One User RAG Collection Naming Scheme
+- **What Was Done**: Document uploads now store chunks in `fitness_user_${userId}`, matching the collection queried by Self-RAG.
+- **Why**: Uploading to `user_${userId}` while retrieving from `fitness_user_${userId}` meant user documents were never used in chat responses.
+
+#### Decision: Harden Nginx Proxy and Challenge Routing
+- **What Was Done**: Fixed the auth rate-limit location to include `/api/users`, added a proper websocket/upgrade connection map, and mounted the ACME challenge webroot in Docker Compose.
+- **Why**: Signup/profile routes need the stricter auth limit, proxy headers should be protocol-correct, and certificate challenge files must be available in the Nginx container for TLS operations.
+
+---
+
+### 15.10 Microservices Migration & Distributed Infrastructure Decisions
+
+#### Decision: Dual Redis Connection Strategy (Upstash REST vs. Redis TCP Pub/Sub)
+- **What Was Decided**:
+  - Connect the Go API Gateway and embedded SSE Hub directly via native Redis TCP (`rediss://`) using `go-redis/v9`.
+  - Retain the Upstash REST API (`@upstash/redis` over HTTPS) for simple stateless services and edge handlers where persistent TCP sockets are unnecessary.
+  - Run a local Redis container (`redis:7-alpine`) in `docker-compose.dev.yml` for internal Pub/Sub and rate limiting during development.
+- **Why**:
+  - Upstash REST over HTTPS does not support long-lived blocking Redis Pub/Sub commands (`SUBSCRIBE`). Go goroutines managing client SSE event streams require persistent TCP sockets to receive real-time push events from background workers without polling.
+  - Stateless API routes continue to benefit from serverless REST connection resilience, while the real-time event hub gets true sub-millisecond Pub/Sub delivery.
+
+#### Decision: Schema Drift Prevention Across Go, Python, and TypeScript
+- **What Was Decided**:
+  - Maintain authoritative shared contracts in a centralized root `contracts/` directory.
+  - Standardize on **OpenAPI 3.1** for REST APIs, **Protocol Buffers** for gRPC, and **JSON Schema** for shared asynchronous messaging payloads (RabbitMQ & Redis Pub/Sub events).
+  - Automatically generate TypeScript, Python, and Go models directly from the authoritative contracts.
+  - Validate incoming payloads against schemas and enforce contract checks in CI.
+- **Why**:
+  - ZenFit spans three distinct runtime languages: Go (Gateway & Audio), Python (AI Engine & Worker), and TypeScript (Auth & Next.js). Hand-written model duplication drifts over time, causing silent serialization errors, runtime contract mismatches, and production downtime across service boundaries.
+
+#### Decision: Hybrid Local Developer Experience & Backing-Store Isolation
+- **What Was Decided**:
+  - Create a lightweight `docker-compose.dev.yml` to orchestrate *only* stateful backing stores: MongoDB, Redis, RabbitMQ, and ChromaDB.
+  - Run application services locally on the host machine with live reload.
+  - Persist backing-store data using Docker volumes.
+  - Bind development ports to `localhost` (`127.0.0.1`) and configure local environment variables.
+- **Why**:
+  - Running all 5+ application containers simultaneously in Docker on local machines causes massive RAM/CPU thrashing (8GB+), disables rapid hot reload, and slows down developer feedback loops.
+  - Isolating only stateful infrastructure in Docker ensures clean, zero-install consistency across developer environments while keeping application execution fast.
+
+#### Decision: Distributed Tracing Across Asynchronous Boundaries
+- **What Was Decided**:
+  - Implement OpenTelemetry with standard W3C `traceparent` propagation.
+  - Propagate trace context through HTTP services and RabbitMQ message headers.
+  - Include request and job IDs in worker logs and Redis notifications.
+  - Trace queue wait time, AI-provider calls (Mistral/Gemini), database commits, and SSE delivery.
+  - Export traces to a tracing backend such as Jaeger or Grafana Tempo.
+- **Why**:
+  - Plan generation spans multiple asynchronous network boundaries (`Client → Nginx → Go Gateway → RabbitMQ → Python Worker → MongoDB/Redis → Go SSE Hub → Client`). Without correlation IDs and trace propagation, pinpointing queue lag, API timeouts, or worker crashes is nearly impossible.
+
+#### Decision: JWT Private-Key Distribution, Secret Bootstrapping & Key Rotation
+- **What Was Decided**:
+  - Create a script to generate an RSA 2048-bit key pair using OpenSSL.
+  - Keep the private key exclusively in Auth & Core.
+  - Distribute the public key to the Go Gateway and AI Engine.
+  - Exclude key files and secrets from source control (`.gitignore`).
+  - Mount keys read-only where required.
+  - Use production secret management and define a key-rotation strategy.
+- **Why**:
+  - Symmetric HS256 requires sharing the master secret across all services, creating a single point of failure where any compromised service can forge authentication tokens for the entire system.
+  - RS256 enables in-memory token verification in under 1ms at the Gateway using only the public key, isolating token creation authority exclusively to Auth & Core.
+
+
+

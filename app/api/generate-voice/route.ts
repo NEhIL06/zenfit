@@ -84,6 +84,8 @@ export async function POST(request: Request) {
 
     const { text } = validation.data
     const voiceName = validation.data.voiceName || validation.data.voice || "Puck"
+
+    //TODO - Rate limiting and security checks and auth checks should be done in middle ware and routed from there only, req should never reach API unless authenticated & authorized
     const rateLimit = await checkRateLimit(`voice_${auth.user.userId}`)
     if (!rateLimit.success) {
       return NextResponse.json(
