@@ -26,7 +26,6 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	// Attempt to load .env from current dir or parent dirs
 	loadDotEnvFiles(".env", "../y/.env", "../../y/.env")
 
 	port := getEnv("PORT", "8080")

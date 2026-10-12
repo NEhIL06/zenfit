@@ -1,0 +1,74 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────
+# ZenFit Local Development Environment (ADR 15.10)
+# Orchestrates only backing stores & local dev edge proxy
+# Application services (Next.js, Go Speech, etc.) run on host
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  # ─────────────────────────────────────
+  # ChromaDB Vector Store
+  # ─────────────────────────────────────
+  chroma:
+    image: chromadb/chroma:0.5.0
+    container_name: zenfit_dev_chroma
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - chroma_dev_data:/chroma/.chroma/index
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ─────────────────────────────────────
+  # Local Redis (TCP Pub/Sub & Rate Limit)
+  # ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: zenfit_dev_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ─────────────────────────────────────
+  # Edge Proxy (Dev Mode — HTTP Port 80)
+  # ─────────────────────────────────────
+  nginx-dev:
+    image: nginx:1.25-alpine
+    container_name: zenfit_dev_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    extra_hosts:
+      # Allows Nginx container to reach host-running services on Windows/Mac/Linux
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  chroma_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local

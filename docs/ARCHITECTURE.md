@@ -831,15 +831,15 @@ If a worker writes the plan to MongoDB but crashes before publishing to Redis Pu
 Prioritized safeguards to complete before production launch:
 
 ```
-[ ] P0 - Nginx Header Overwrite
+[x] P0 - Nginx Header Overwrite
         Replace `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
-        with `$remote_addr;` to eliminate IP-spoofing rate-limit bypass.
+        with `$remote_addr;` to eliminate IP-spoofing rate-limit bypass. [VERIFIED & IMPLEMENTED]
 
-[ ] P0 - Fix Microphone Permissions-Policy
-        Change nginx.conf to `microphone=(self)` to prevent browser audio recording blocks.
+[x] P0 - Fix Microphone Permissions-Policy
+        Change nginx.conf to `microphone=(self)` to prevent browser audio recording blocks. [VERIFIED & IMPLEMENTED]
 
-[ ] P0 - Remove Public Host Port Mappings
-        Remove `3000:3000` from docker-compose.yml so only Nginx is accessible externally.
+[x] P0 - Remove Public Host Port Mappings
+        Remove `3000:3000` from docker-compose.yml so only Nginx is accessible externally. [VERIFIED & IMPLEMENTED]
 
 [ ] P0 - Fail-Closed Production Secrets
         Throw fatal process exception on startup if JWT_SECRET is missing in production.
@@ -857,11 +857,11 @@ Prioritized safeguards to complete before production launch:
 [ ] P1 - Dead Letter Queue (DLQ) & Poison Pill Mitigation
         Configure max 3 retries on RabbitMQ queues before routing to DLQ with user notification.
 
-[ ] P1 - Circuit Breaker on Third-Party AI Fallbacks
-        Prevent Gemini timeout cascades from inflating fallback latency to 20s.
+[x] P1 - Circuit Breaker on Third-Party AI Fallbacks
+        Prevent Gemini timeout cascades from inflating fallback latency to 20s. [COMPLETED IN SPEECH SERVICE]
 
-[ ] P2 - Binary Audio Streaming
-        Transition audio endpoints from Base64 JSON payloads to raw `audio/wav` binary streaming.
+[x] P2 - Binary Audio Streaming
+        Transition audio endpoints from Base64 JSON payloads to raw `audio/wav` binary streaming. [COMPLETED IN SPEECH SERVICE & NGINX]
 ```
 
 ---
@@ -881,11 +881,21 @@ Next.js monolith handles all routing, auth, AI inference, and data access.
 - **Risk:** Very low — both routes are 100% stateless with no DB dependency
 
 ### Phase 2 — Go API Gateway + Nginx Cluster (with Embedded SSE)
-- Deploy Go API Gateway (in-process RS256 JWT verification, route forwarding, 2-tier rate limiting)
-- Implement embedded SSE Hub (`GET /v1/events`) backed by Go goroutines and Redis Pub/Sub
-- Strip inbound `X-User-*` headers at the Gateway boundary
-- Configure Nginx: TLS termination, load balancing, SSE proxy (`proxy_buffering off;`), `microphone=(self)`
-- Downstream services trust `X-User-Id` and `X-User-Role` headers injected by Gateway
+- [x] **Nginx Edge Reverse Proxy (Completed & Hardened):**
+  - Edge SSL/TLS termination with modern ciphers, HSTS preloading, and ACME challenge support.
+  - Zero-Trust edge hardening: `microphone=(self)` Permissions-Policy unblocked, `$remote_addr` IP-spoofing defense implemented, and container port isolation enforced (`127.0.0.1`).
+  - Selective buffer offloading: unbuffered real-time SSE (`proxy_buffering off; chunked_transfer_encoding off;`) and unbuffered binary WAV streaming (`/speech/`).
+  - Removed unused WebSocket upgrade boilerplate to align strictly with ZenFit's SSE + REST architecture.
+  - Dual-profile configuration architecture: `nginx.conf` (production HTTPS) vs. `nginx.dev.conf` (HTTP port 80 zero-SSL friction) with automated self-signed cert generation.
+  - Standalone Alpine container with `/healthz` edge liveness probe and custom branded `429` / `50x` error pages.
+- [ ] **Go API Gateway Deployment:**
+  - In-process RS256 JWT public-key signature verification.
+  - Strip inbound `X-User-*` headers at the Gateway boundary and inject verified claims downstream.
+  - 2-tier sliding window rate limiting backed by persistent Redis TCP.
+- [ ] **Embedded SSE Hub (`GET /v1/events`):**
+  - Managed by lightweight Go goroutines parked on Redis Pub/Sub channels (`events:{userId}`).
+  - Zero-leak automatic socket cleanup via `r.Context().Done()`.
+- Downstream services trust `X-User-Id` and `X-User-Role` headers injected by Gateway.
 
 ### Phase 3 — AI Engine Service (FastAPI) + RabbitMQ & Workers
 - Extract LangGraph Chat + Self-RAG + ChromaDB to Python FastAPI service
@@ -1151,6 +1161,44 @@ This section consolidates all historical and active architectural, security, per
   - **Unified Local Orchestration:** A single root `docker-compose.dev.yml` manages stateful backing stores (Redis, RabbitMQ, MongoDB, ChromaDB) and container networking across all services without multi-repo path juggling.
   - **Atomic Feature PRs:** Cross-cutting features spanning the frontend client (`apps/web`), gateway (`services/api-gateway`), and backend services can be tested, reviewed, and merged in a single pull request with synchronized git history.
   - **Path-Filtered CI/CD:** GitHub Actions workflows use `on.push.paths` (e.g., `services/speech-service/**`) to test, lint, and build only the services impacted by a commit, providing polyrepo build isolation with zero repository sprawl.
+
+---
+
+### 15.12 Edge Reverse Proxy Architecture, Streaming Offload & Security Hardening (Nginx)
+
+#### Decision: Strict Edge Boundary Hardening, IP-Spoofing Defense & Container Port Isolation
+- **What Was Decided**:
+  - Unconditionally overwrite incoming `X-Real-IP` and `X-Forwarded-For` headers with the TCP-derived `$remote_addr` at the Nginx edge boundary across all reverse-proxied routes.
+  - Configure `Permissions-Policy "camera=(), microphone=(self), geolocation=()"` to explicitly permit client-side microphone capture for the Speech & Audio Service and AI Trainer while locking down unused camera/location capabilities.
+  - Enforce container network isolation in `docker-compose.yml` by binding downstream ports (`app` on `3000`, `speech-service` on `8080`) to `127.0.0.1` rather than public network interfaces (`0.0.0.0`).
+- **Why**:
+  - Default Nginx configurations using `$proxy_add_x_forwarded_for` append the client IP to whatever untrusted `X-Forwarded-For` header was provided by the incoming client. Attackers sending arbitrary IP headers can bypass IP-based rate limiting on sensitive routes (`/api/auth/login`).
+  - Standard zero-trust browser permission headers typically disable microphone capture (`microphone=()`), which causes modern browsers (`navigator.mediaDevices.getUserMedia`) to immediately fail with `DOMException: PermissionDeniedError` when users attempt voice transcription or audio workout coaching.
+  - Exposing downstream container ports directly to `0.0.0.0` allows attackers to bypass edge TLS encryption, rate limiters, and payload bounds by sending requests straight to internal microservices.
+
+#### Decision: Selective Buffer Offloading for Real-Time SSE and Binary Audio Streams
+- **What Was Decided**:
+  - Configure `proxy_buffering off; chunked_transfer_encoding off; proxy_read_timeout 24h;` for Server-Sent Events (`~ ^/(api/v1/events|v1/events|api/events)`).
+  - Configure `proxy_buffering off; chunked_transfer_encoding on;` for the Speech Microservice proxy (`/speech/*`).
+- **Why**:
+  - Nginx buffers upstream responses by default (holding up to 4 KB before flushing). For SSE connections, real-time push events remain trapped in the proxy buffer until 4 KB accumulates, causing indefinite client hangs.
+  - For audio generation, unbuffered chunked transfer provides immediate Time-To-First-Byte (TTFB) playback for raw binary WAV audio synthesized by the Go speech microservice.
+
+#### Decision: Omission of WebSocket Upgrade Boilerplate in Favor of Pure SSE & HTTP/2 Streaming
+- **What Was Decided**:
+  - Removed `map $http_upgrade $connection_upgrade` and all associated `proxy_set_header Upgrade` / `Connection $connection_upgrade` directives across location blocks.
+  - Retained clean `proxy_set_header Connection '';` strictly within the dedicated SSE streaming block.
+- **Why**:
+  - ZenFit's distributed architecture explicitly chose **Server-Sent Events (SSE)** over WebSockets for server-to-client push notifications, paired with standard HTTP/2 chunked transfer for audio streaming and REST for synchronous operations.
+  - Retaining WebSocket upgrade mappings adds unused proxy complexity and risks misconfigured hop-by-hop headers on standard keep-alive HTTP requests.
+
+#### Decision: Dual-Profile Configuration Architecture (Production TLS vs. Zero-Friction Dev Port 80)
+- **What Was Decided**:
+  - Maintain two dedicated configurations: `nginx.conf` (production HTTPS on port 443 with TLS 1.2/1.3, HSTS, ACME challenge, and strict rate limits) and `nginx.dev.conf` (HTTP port 80 with relaxed rate limits and zero SSL certificate requirements).
+  - Provide automated local self-signed certificate generation scripts (`generate-dev-certs.ps1` and `generate-dev-certs.sh`) for developers testing HTTPS locally.
+  - Provide a dedicated development orchestration file (`docker-compose.dev.yml`) to run backing stores and the dev edge proxy with zero SSL friction.
+- **Why**:
+  - Production Nginx immediately crashes on boot if specified SSL certificate files are missing on disk. Requiring SSL certificates during local development creates unnecessary developer friction, while running relaxed dev configurations in production compromises security. Separate, purpose-built profiles solve both requirements cleanly.
 
 ---
 
