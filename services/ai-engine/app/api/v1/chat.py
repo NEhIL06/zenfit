@@ -37,6 +37,7 @@ async def chat_handler(
                 message=body.message,
                 user_id=resolved_user_id,
                 chat_history=chat_hist,
+                user_plan_context=body.userPlanContext,
             ),
             media_type="text/event-stream",
             headers={
@@ -52,6 +53,7 @@ async def chat_handler(
         user_id=resolved_user_id,
         chat_history=chat_hist,
         images=body.images,
+        user_plan_context=body.userPlanContext,
     )
 
     return ChatResponse(
@@ -60,4 +62,7 @@ async def chat_handler(
         imageUrl=result.get("imageUrl"),
         exerciseName=result.get("exerciseName"),
         classification=result.get("classification"),
+        tool_calls=result.get("tool_calls"),
+        retrieval_route=result.get("retrieval_route"),
+        cache_hit=result.get("cache_hit"),
     )

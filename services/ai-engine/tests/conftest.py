@@ -12,6 +12,7 @@ from app.main import create_application
 from app.config import settings
 from app.core.circuit_breaker import mistral_breaker, gemini_breaker, pollinations_breaker
 from app.services.redis_service import redis_service
+from app.services.redis_vss_service import redis_vss_service
 from app.services.queue_publisher import queue_publisher
 
 
@@ -36,7 +37,21 @@ def reset_in_memory_state():
     gemini_breaker.reset()
     pollinations_breaker.reset()
     redis_service._memory_cache.clear()
+    redis_vss_service._test_vectors.clear()
     queue_publisher.memory_queue.clear()
+    if redis_service.client:
+        try:
+            for k in redis_service.client.keys("idempotency:*"):
+                redis_service.client.delete(k)
+        except Exception:
+            pass
     yield
     redis_service._memory_cache.clear()
+    redis_vss_service._test_vectors.clear()
     queue_publisher.memory_queue.clear()
+    if redis_service.client:
+        try:
+            for k in redis_service.client.keys("idempotency:*"):
+                redis_service.client.delete(k)
+        except Exception:
+            pass

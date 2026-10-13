@@ -44,6 +44,24 @@ class Settings(BaseSettings):
     CHROMA_AUTH_TOKEN: Optional[str] = Field(default=None, alias="CHROMA_SERVER_AUTH_CREDENTIALS")
     CHROMA_GLOBAL_COLLECTION: str = "fitness_global_knowledge"
 
+    # Redis VSS Semantic Retrieval Cache
+    REDIS_VSS_INDEX: str = "idx:rag_cache"
+    REDIS_VSS_DIM: int = 768
+    REDIS_VSS_DISTANCE_THRESHOLD: float = 0.08  # Cosine distance <= 0.08 -> Similarity >= 0.92
+    REDIS_VSS_TTL_SEC: int = 604800  # 7 days
+
+    # FlashRank Multilingual Cross-Encoder
+    FLASHRANK_MODEL: str = "ms-marco-MultiBERT-L-12"
+    FLASHRANK_CONFIDENCE_THRESHOLD: float = 0.65
+    FLASHRANK_MAX_LENGTH: int = 128
+    FLASHRANK_CACHE_DIR: str = "/tmp/models"
+
+    # Latency & Retrieval SLA
+    RETRIEVAL_SLA_TIMEOUT_SEC: float = 0.220  # 220ms hard timeout
+
+    # Go Speech Service
+    SPEECH_SERVICE_URL: str = Field(default="http://localhost:8081", alias="SPEECH_SERVICE_URL")
+
     # Queue Configurations
     PLAN_QUEUE: str = "q.plans"
     PLAN_DLQ: str = "q.plans.dlq"

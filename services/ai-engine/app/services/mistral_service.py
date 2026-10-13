@@ -205,6 +205,45 @@ OUTPUT FORMAT (JSON Object ONLY, with NO extra markdown or formatting):
 
         return await mistral_breaker.call(_call_chat)
 
+    async def stream_chat_tokens(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 500,
+    ):
+        """Asynchronously streams generated tokens from Mistral."""
+        if not self.client or settings.ENVIRONMENT == "test":
+            text = (
+                "Prioritize progressive overload and maintain proper exercise technique. "
+                "Consistent nutrition, adequate protein intake, and scheduled recovery days "
+                "yield safe, sustained fitness transformations."
+            )
+            for word in text.split(" "):
+                yield word + " "
+            return
+
+        sys_msg = system_prompt or "You are an expert AI fitness coach and nutritionist."
+        messages = [
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            stream_resp = self.client.chat.stream(
+                model=self.model,
+                messages=messages,
+                max_tokens=max_tokens,
+            )
+            for chunk in stream_resp:
+                delta = getattr(chunk.data.choices[0].delta, "content", None)
+                if delta:
+                    yield delta
+        except Exception as err:
+            logger.warning(f"[MistralService] Stream error ({err}). Falling back to static stream.")
+            fallback = "Focus on form, hydration, and progressive adaptation."
+            for word in fallback.split(" "):
+                yield word + " "
+
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """Sanitizes and safely parses JSON from LLM output."""
         cleaned = text.strip()

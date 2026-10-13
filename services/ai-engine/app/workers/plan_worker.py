@@ -20,6 +20,7 @@ from app.config import settings
 from app.core.logger import logger
 from app.services.mistral_service import mistral_service
 from app.services.redis_service import redis_service
+from app.services.redis_vss_service import redis_vss_service
 
 
 class PlanWorker:
@@ -118,9 +119,9 @@ class PlanWorker:
         # 2. Write to MongoDB
         self.save_plan_to_db(user_id=user_id, job_id=job_id, form_data=details, plan=plan)
 
-        # 3. Purge user RAG cache
-        deleted_keys = redis_service.clear_pattern(f"cache:rag:{user_id}:*")
-        logger.info(f"[PlanWorker] Purged {deleted_keys} stale RAG cache entries for user {user_id}")
+        # 3. Non-blocking purge of stale user RAG cache (SCAN + UNLINK in batches of 100)
+        deleted_keys = redis_vss_service.unlink_user_cache(user_id)
+        logger.info(f"[PlanWorker] Purged {deleted_keys} stale private RAG cache entries for user {user_id}")
 
         # 4. Publish completion event to Redis Pub/Sub (events:{userId})
         event_payload = {
