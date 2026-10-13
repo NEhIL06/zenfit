@@ -1,99 +1,15 @@
 version: "3.9"
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ZenFit — Production Container Orchestration Stack
+# Implements Phase 5 Specifications (ARCHITECTURE.md Sections 8, 9, 10, 11, 12, 13)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 services:
-  # ─────────────────────────────────────
-  # ZenFit Next.js Frontend Application
-  # ─────────────────────────────────────
-  app:
-    build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-      target: runner
-      args:
-        - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost}
-    container_name: zenfit_app
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
-    environment:
-      - NODE_ENV=production
-      - MONGODB_URI=${MONGODB_URI}
-      - JWT_SECRET=${JWT_SECRET}
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - HF_API_KEY=${HF_API_KEY}
-      - NANOBANANA_API_KEY=${NANOBANANA_API_KEY}
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
-      - CHROMA_SERVER_URL=${CHROMA_SERVER_URL:-http://chroma:8000}
-      - SPEECH_SERVICE_URL=${SPEECH_SERVICE_URL:-http://speech-service:8080}
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost}
-    depends_on:
-      chroma:
-        condition: service_healthy
-      speech-service:
-        condition: service_healthy
-    networks:
-      - zenfit_net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # ─────────────────────────────────────
-  # ZenFit Speech & Audio Microservice (Go)
-  # ─────────────────────────────────────
-  speech-service:
-    build:
-      context: ./services/speech-service
-      dockerfile: Dockerfile
-    container_name: zenfit_speech_service
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:8080"
-    environment:
-      - PORT=8080
-      - ENVIRONMENT=production
-      - DEBUG=false
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
-      - TRUSTED_ORIGINS=${TRUSTED_ORIGINS:-http://localhost:3000,http://app:3000}
-    networks:
-      - zenfit_net
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-  # ─────────────────────────────────────
-  # ChromaDB Vector Store
-  # ─────────────────────────────────────
-  chroma:
-    image: chromadb/chroma:0.5.0
-    container_name: zenfit_chroma
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - chroma_data:/chroma/.chroma/index
-    environment:
-      - IS_PERSISTENT=TRUE
-    networks:
-      - zenfit_net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-
-  # ─────────────────────────────────────
-  # Nginx Reverse Proxy
-  # ─────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 1. Edge Reverse Proxy & TLS Termination (Nginx)
+  # Sole ingress point exposing host ports 80 & 443 (Section 9.1.D)
+  # ─────────────────────────────────────────────────────────────────────────────
   nginx:
     build:
       context: ./nginx
@@ -110,9 +26,7 @@ services:
       - certbot_www:/var/www/certbot
       - nginx_logs:/var/log/nginx
     depends_on:
-      app:
-        condition: service_healthy
-      speech-service:
+      api-gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/healthz"]
@@ -120,17 +34,289 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
     networks:
       - zenfit_net
 
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 2. Go API Gateway & Embedded Real-Time SSE Hub (Service 2)
+  # In-process JWT validation (<1ms), rate limiting, and SSE streaming
+  # ─────────────────────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: zenfit_api_gateway
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - AI_ENGINE_URL=http://ai-engine:8000
+      - SPEECH_SERVICE_URL=http://speech-service:8081
+      - JWT_SECRET=${JWT_SECRET}
+      - RATE_LIMIT_ENABLED=true
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      ai-engine:
+        condition: service_healthy
+      speech-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 256M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 3. Speech & Audio Microservice (Go - Service 1)
+  # Binary audio streaming (WAV) eliminating 33% Base64 serialization tax
+  # ─────────────────────────────────────────────────────────────────────────────
+  speech-service:
+    build:
+      context: ./services/speech-service
+      dockerfile: Dockerfile
+    container_name: zenfit_speech_service
+    restart: unless-stopped
+    environment:
+      - PORT=8081
+      - ENVIRONMENT=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+      - TRUSTED_ORIGINS=http://localhost:3000,http://app:3000,http://api-gateway:8080
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 4. AI Engine Service (FastAPI / Python - Service 3)
+  # Self-RAG retrieval, multimodal chat, and async 202 plan generation
+  # ─────────────────────────────────────────────────────────────────────────────
+  ai-engine:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: zenfit_ai_engine
+    restart: unless-stopped
+    environment:
+      - PORT=8000
+      - ENVIRONMENT=production
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - CHROMA_SERVER_URL=http://chroma:8000
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-zenfit}
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live').read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 5. Background Plan Generation Worker (Python - Service 3 Async Worker)
+  # RabbitMQ consumer with bounded concurrency, strict ACK, and DLQ routing
+  # ─────────────────────────────────────────────────────────────────────────────
+  ai-worker:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: zenfit_ai_worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.plan_worker"]
+    environment:
+      - ENVIRONMENT=production
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-zenfit}
+      - PREFETCH_COUNT=2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 512M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 6. Auth & Core Service (Express / TypeScript - Service 4)
+  # Exclusive MongoDB owner, RS256 JWKS RFC 7517 discovery, session rotation
+  # ─────────────────────────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: zenfit_auth_service
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-zenfit}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGINS=http://localhost:3000,http://app:3000,http://api-gateway:8080
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 7. Redis TCP Store (Caching, Pub/Sub SSE Hub, Denylist, Rate Limiting)
+  # ─────────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: zenfit_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 9. RabbitMQ Message Broker (Async Plan Gen Jobs + DLQ)
+  # ─────────────────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: zenfit_rabbitmq
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - zenfit_net
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # 10. ChromaDB Vector Store (AI Trainer Vector Search & Self-RAG)
+  # ─────────────────────────────────────────────────────────────────────────────
+  chroma:
+    image: chromadb/chroma:0.5.0
+    container_name: zenfit_chroma
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/.chroma/index
+    environment:
+      - IS_PERSISTENT=TRUE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - zenfit_net
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Networks & Volumes Configuration
+# ─────────────────────────────────────────────────────────────────────────────
 networks:
   zenfit_net:
+    name: zenfit_net
     driver: bridge
 
 volumes:
+  redis_data:
+    name: zenfit_redis_data
+    driver: local
+  rabbitmq_data:
+    name: zenfit_rabbitmq_data
+    driver: local
   chroma_data:
+    name: zenfit_chroma_data
     driver: local
   nginx_logs:
+    name: zenfit_nginx_logs
     driver: local
   certbot_www:
+    name: zenfit_certbot_www
     driver: local

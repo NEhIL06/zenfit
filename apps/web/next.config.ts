@@ -28,6 +28,29 @@ const nextConfig: NextConfig = {
       '@chroma-core/default-embed': './lib/chroma-embed-stub',
     },
   },
+  // Vercel Serverless Hosting: Reverse proxy API requests to backend Go API Gateway
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL;
+    if (!backendUrl) {
+      return [];
+    }
+    // Clean trailing slash if present
+    const cleanBase = backendUrl.replace(/\/+$/, '');
+    return [
+      {
+        source: '/v1/:path*',
+        destination: `${cleanBase}/v1/:path*`,
+      },
+      {
+        source: '/api/:path*',
+        destination: `${cleanBase}/api/:path*`,
+      },
+      {
+        source: '/speech/:path*',
+        destination: `${cleanBase}/speech/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

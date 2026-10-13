@@ -23,12 +23,18 @@ func TestClassifyRoute(t *testing.T) {
 		{"/v1/image/generate", TargetAIEngine},
 		{"/v1/quote", TargetAIEngine},
 		{"/v1/documents", TargetAIEngine},
+		{"/api/generate-plan", TargetAIEngine},
+		{"/api/generate-image", TargetAIEngine},
+		{"/api/generate-quote", TargetAIEngine},
+		{"/api/ai-trainer/chat", TargetAIEngine},
 
 		{"/v1/auth/login", TargetAuthCore},
 		{"/v1/auth/refresh", TargetAuthCore},
 		{"/v1/users/usr_123", TargetAuthCore},
 		{"/v1/milestones", TargetAuthCore},
+		{"/api/auth/login", TargetAuthCore},
 		{"/api/users", TargetAuthCore},
+		{"/api/milestones", TargetAuthCore},
 	}
 
 	for _, tc := range cases {

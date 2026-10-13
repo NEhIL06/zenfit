@@ -60,8 +60,8 @@ func Load() (*Config, error) {
 		RedisURL:         getEnv("REDIS_URL", getEnv("UPSTASH_REDIS_TCP_URL", "redis://localhost:6379")),
 		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
 
-		AuthServiceURL:   getEnv("AUTH_SERVICE_URL", "http://localhost:3000"),
-		AIEngineURL:      getEnv("AI_ENGINE_URL", "http://localhost:3000"),
+		AuthServiceURL:   getEnv("AUTH_SERVICE_URL", "http://localhost:3001"),
+		AIEngineURL:      getEnv("AI_ENGINE_URL", "http://localhost:8000"),
 		SpeechServiceURL: getEnv("SPEECH_SERVICE_URL", "http://localhost:8081"),
 
 		RateLimitEnabled: getEnvAsBool("RATE_LIMIT_ENABLED", true),

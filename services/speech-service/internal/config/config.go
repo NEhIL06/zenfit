@@ -28,7 +28,7 @@ type Config struct {
 func Load() (*Config, error) {
 	loadDotEnvFiles(".env", "../y/.env", "../../y/.env")
 
-	port := getEnv("PORT", "8080")
+	port := getEnv("PORT", "8081")
 	env := getEnv("NODE_ENV", getEnv("ENVIRONMENT", "development"))
 	geminiKey := os.Getenv("GEMINI_API_KEY")
 	pollinationsKey := os.Getenv("POLLINATIONS_API_KEY")

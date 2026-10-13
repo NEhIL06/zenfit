@@ -2,11 +2,48 @@ version: "3.9"
 
 # ─────────────────────────────────────────────────────────────────
 # ZenFit Local Development Environment (ADR 15.10)
-# Orchestrates only backing stores & local dev edge proxy
-# Application services (Next.js, Go Speech, etc.) run on host
+# Orchestrates backing stores & local dev edge proxy
+# Application services (Next.js, Go, Python, Node) can run on host or compose
 # ─────────────────────────────────────────────────────────────────
 
 services:
+  # ─────────────────────────────────────
+  # Local Redis (TCP Pub/Sub & Rate Limit)
+  # ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: zenfit_dev_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ─────────────────────────────────────
+  # Local RabbitMQ (Task Queue & DLQ)
+  # ─────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: zenfit_dev_rabbitmq
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_dev_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # ─────────────────────────────────────
   # ChromaDB Vector Store
   # ─────────────────────────────────────
@@ -27,24 +64,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-  # ─────────────────────────────────────
-  # Local Redis (TCP Pub/Sub & Rate Limit)
-  # ─────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: zenfit_dev_redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - redis_dev_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
 
   # ─────────────────────────────────────
   # Edge Proxy (Dev Mode — HTTP Port 80)
@@ -71,4 +90,6 @@ volumes:
   chroma_dev_data:
     driver: local
   redis_dev_data:
+    driver: local
+  rabbitmq_dev_data:
     driver: local

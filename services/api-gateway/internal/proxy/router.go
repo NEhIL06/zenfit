@@ -108,7 +108,11 @@ func ClassifyRoute(path string) ServiceTarget {
 		strings.HasPrefix(cleanPath, "/v1/image") ||
 		strings.HasPrefix(cleanPath, "/v1/quote") ||
 		strings.HasPrefix(cleanPath, "/v1/documents") ||
-		strings.HasPrefix(cleanPath, "/api/ai-trainer") {
+		strings.HasPrefix(cleanPath, "/api/ai-trainer") ||
+		cleanPath == "/api/generate-plan" ||
+		cleanPath == "/api/generate-image" ||
+		cleanPath == "/api/generate-quote" ||
+		cleanPath == "/api/personalized-quote" {
 		return TargetAIEngine
 	}
 
@@ -116,6 +120,9 @@ func ClassifyRoute(path string) ServiceTarget {
 	if strings.HasPrefix(cleanPath, "/v1/auth") ||
 		strings.HasPrefix(cleanPath, "/v1/users") ||
 		strings.HasPrefix(cleanPath, "/v1/milestones") ||
+		strings.HasPrefix(cleanPath, "/api/auth") ||
+		strings.HasPrefix(cleanPath, "/api/users") ||
+		strings.HasPrefix(cleanPath, "/api/milestones") ||
 		strings.HasPrefix(cleanPath, "/api/") {
 		return TargetAuthCore
 	}
@@ -140,9 +147,27 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.speechProxy.ServeHTTP(w, req)
 
 	case TargetAIEngine:
+		if req.URL.Path == "/api/generate-plan" {
+			req.URL.Path = "/v1/plan/generate"
+		} else if req.URL.Path == "/api/generate-image" {
+			req.URL.Path = "/v1/image/generate"
+		} else if req.URL.Path == "/api/generate-quote" {
+			req.URL.Path = "/v1/quote"
+		} else if req.URL.Path == "/api/personalized-quote" {
+			req.URL.Path = "/v1/quote/personalized"
+		} else if strings.HasPrefix(req.URL.Path, "/api/ai-trainer") {
+			req.URL.Path = "/v1/chat"
+		}
 		r.aiProxy.ServeHTTP(w, req)
 
 	case TargetAuthCore:
+		if strings.HasPrefix(req.URL.Path, "/api/auth/") {
+			req.URL.Path = strings.Replace(req.URL.Path, "/api/auth/", "/v1/auth/", 1)
+		} else if strings.HasPrefix(req.URL.Path, "/api/users") {
+			req.URL.Path = strings.Replace(req.URL.Path, "/api/users", "/v1/users", 1)
+		} else if strings.HasPrefix(req.URL.Path, "/api/milestones") {
+			req.URL.Path = strings.Replace(req.URL.Path, "/api/milestones", "/v1/milestones", 1)
+		}
 		r.authProxy.ServeHTTP(w, req)
 
 	default:
