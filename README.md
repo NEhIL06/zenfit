@@ -19,6 +19,12 @@ Engineered with an Agentic Self-RAG engine, sub-millisecond semantic caching, lo
 
 ---
 
+> [!NOTE]
+> **Live Presentation Deployment vs. Production Distributed Architecture**:  
+> Keeping a 10-container distributed microservices cluster (Go API Gateway, Go Speech Synthesizer, Python Self-RAG AI Engine, Redis Stack VSS, RabbitMQ, ChromaDB) continuously running on an AWS EC2 instance 24/7 incurs ongoing idle cloud compute and hosting costs. Therefore, for presentation and portfolio demonstration purposes, the application is deployed as a consolidated serverless monolith on **Vercel** (`apps/web`), while the complete multi-service architecture remains fully containerized via Docker Compose for production and local environments.
+
+---
+
 ## 📖 Overview
 
 ZenFit is a distributed multimodal coaching platform designed to overcome the latency, privacy, and reliability limitations of monolithic AI applications. The system decouples compute-intensive machine learning workflows from edge request routing through four specialized microservices:
@@ -57,6 +63,7 @@ All benchmarks were measured locally on a Windows 11 workstation powered by an *
 - **Speech Container Size**: Slashed production Docker image from **~520 MB** (Next.js runner) to **16.2 MB** via statically linked Alpine Go binary (**96.9% reduction**).
 - **Runtime Memory Allocation**: The Go API Gateway runs at **0.95 MB** active memory; Go Speech Service runs at **67.4 MB** under peak concurrency (vs 350–500MB Node.js).
 - **Network Bandwidth**: Dual-mode binary streaming eliminates the **33% Base64 serialization overhead**, cutting a 10s audio payload from 290.8 KB to 216.2 KB.
+- **Cloud Hosting & Deployment Efficiency**: Operating the full 10-container microservices cluster 24/7 on an AWS EC2 instance (`t3.xlarge` / `c6i.xlarge` for in-process ONNX embeddings, vector caching, and AMQP message brokers) incurs continuous cloud compute costs (~$60–$120+/month). For presentation and portfolio evaluation, the platform is deployed as an auto-scaling serverless monolith on **Vercel** ($0 idle cost, zero maintenance overhead), eliminating dedicated EC2 hosting bills while maintaining the distributed containerized architecture for production environments.
 
 ---
 
@@ -171,6 +178,7 @@ Detailed in 25+ formal [Architecture Decision Records (ADRs)](docs/ARCHITECTURE.
 | **Audio Synthesizer** | Go Microservice (`sync.Pool` RIFF container) | Node.js Monolith (`Buffer.concat`) | Node buffer allocations triggered heavy V8 garbage collection spikes under concurrent load. Go's `sync.Pool` slashed per-op latency by 44.9% (8,267 ns/op) with near-zero GC pauses. |
 | **Conversational Caching** | Redis VSS HNSW Semantic Vector Match ($D \le 0.08$) | Exact String Hashing (`sha256(query)`) | Exact hashing yields a <2% hit rate in conversational chat due to punctuation, typos, and STT variance. VSS delivers 60–80% hit rates across synonymous fitness queries. |
 | **Cluster Auth Boundary** | Asymmetric RS256 with RFC 7517 Dynamic JWKS | Symmetric Shared Secret (`HS256`) | Symmetric secrets require distributing the private signing key across all microservices. RS256 ensures only the Auth service can mint tokens; edge gateways verify via cached public keys. |
+| **Presentation Deployment** | Consolidated Serverless Monolith on Vercel | 24/7 Dedicated Cloud VM (AWS EC2) | Keeping a 10-container distributed cluster continuously running on an EC2 instance incurs ongoing idle cloud infrastructure bills for a demo environment. Vercel serverless functions offer instant global availability at zero idle cost for portfolio review. |
 
 ---
 
